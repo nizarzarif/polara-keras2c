@@ -10,7 +10,7 @@ https://github.com/f0uriest/keras2c
 
 #include <stdlib.h>
 #include "k2c_tensor_include.h"
-
+#include <stdint.h>
 
 // Activations
 void k2c_linear_func(float * x, const size_t size);
@@ -54,6 +54,9 @@ void k2c_conv1d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
 void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                 const k2c_tensor* bias, const size_t * stride, const size_t * dilation,
                 k2c_activationType *activation);
+void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
+    const k2c_tensor_int* bias, const size_t* stride, const size_t* dilation,
+    k2c_activationType* activation, size_t shift_factor, size_t scale_factor);
 void k2c_conv3d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                 const k2c_tensor* bias, const size_t * stride, const size_t * dilation,
                 k2c_activationType *activation);
@@ -67,6 +70,8 @@ void k2c_upsampling3d(k2c_tensor* output, const k2c_tensor* input, const size_t 
 // Core Layers
 void k2c_dense(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                const k2c_tensor* bias, k2c_activationType *activation, float * fwork);
+void k2c_dense_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
+    const k2c_tensor_int* bias, k2c_activationType* activation, float* fwork, size_t shift_factor, size_t scale_factor);
 void k2c_flatten(k2c_tensor *output, const k2c_tensor* input);
 void k2c_reshape(k2c_tensor *output, const k2c_tensor* input, const size_t * newshp,
                  const size_t newndim);
@@ -87,6 +92,7 @@ void k2c_idx2sub(const size_t idx, size_t * sub, const size_t * shape, const siz
 void k2c_dot(k2c_tensor* C, const k2c_tensor* A, const k2c_tensor* B, const size_t * axesA,
              const size_t * axesB, const size_t naxes, const int normalize, float * fwork);
 void k2c_bias_add(k2c_tensor* A, const k2c_tensor* b);
+void k2c_bias_add_fixed_point(k2c_tensor_int* A, const k2c_tensor_int* b);
 void k2c_flip(k2c_tensor *A, const size_t axis);
 float* k2c_read_array(const char* filename, const size_t array_size);
 
@@ -145,3 +151,8 @@ void k2c_gru(k2c_tensor* output, const k2c_tensor* input, float * state,
              k2c_activationType *recurrent_activation,
              k2c_activationType *output_activation);
 
+void float_array_to_fixed(float* x_float, int* x_fixed, int size);
+void fixed_array_to_float(int* x_fixed, float* x_float, int size);
+int32_t multiplyFixedPoint(int32_t a, int32_t b, int m, int n);
+void float_tensor_to_fixed(k2c_tensor* x_float, k2c_tensor_int* x_fixed, size_t size);
+void fixed_tensor_to_float(k2c_tensor_int* x_fixed, k2c_tensor* x_float, size_t size);

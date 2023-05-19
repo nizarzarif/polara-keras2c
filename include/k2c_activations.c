@@ -40,6 +40,22 @@ void k2c_exponential_func(float * x, const size_t size) {
 }
 k2c_activationType * k2c_exponential = k2c_exponential_func;
 
+/**
+ * ReLU activation function for fixed-point values.
+ *   y = max(x, 0)
+ *
+ * @param x    Array of input values. Gets overwritten by output.
+ * @param size Length of the input array.
+ * @param shift_factor The number of bits to shift the fixed-point values.
+ */
+void k2c_relu_func_fixed_point(int* x, const size_t size, size_t shift_factor) {
+    for (size_t i = 0; i < size; ++i) {
+        if (x[i] <= 0) {
+            x[i] = 0;
+        }
+    }
+}
+k2c_activationType* k2c_relu_fixed_point = k2c_relu_func_fixed_point;
 
 /**
  * ReLU activation function.

@@ -185,6 +185,63 @@ void k2c_conv1d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
  * :param dilation: array[2] dilation rate to use for dilated convolution. Order is {dilation dim 1, dilation dim 2}.
  * :param activation: activation function to apply to output.
  */
+void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
+    const k2c_tensor_int* bias, const size_t* stride, const size_t* dilation,
+    k2c_activationType* activation, size_t shift_factor, size_t scale_factor) {
+
+    memset(output->array, 0, output->numel * sizeof(output->array[0]));
+
+    const size_t out_rows = output->shape[0];
+    const size_t out_cols = output->shape[1];
+    const size_t out_channels = output->shape[2];
+    //const size_t in_channels = input->shape[2];
+    const size_t in_channels = 1;
+    int temp1, temp2, temp3, counter;
+    for (size_t x0 = 0; x0 < out_rows; ++x0) {
+        for (size_t x1 = 0; x1 < out_cols; ++x1) {
+            for (size_t z0 = 0; z0 < kernel->shape[0]; ++z0) {
+                for (size_t z1 = 0; z1 < kernel->shape[1]; ++z1) {
+                    for (size_t q = 0; q < in_channels; ++q) {
+                        for (size_t k = 0; k < out_channels; ++k) {
+                            temp1 = x0 * (output->shape[2] * output->shape[1])
+                                + x1 * (output->shape[2]) + k;
+                            temp2 = z0 * (kernel->shape[3] * kernel->shape[2] * kernel->shape[1])
+                                + z1 * (kernel->shape[3] * kernel->shape[2])
+                                + q * (kernel->shape[3]) + k;
+                            temp3 = (x0 * stride[0]
+                                + dilation[0] * z0) * (in_channels * input->shape[1])
+                                + (x1 * stride[1] + dilation[1] * z1) * (in_channels)+q;
+                            //printf("temp3 = %d, MUlresult = %d\n",temp3, multiplyFixedPoint(kernel->array[temp2], input->array[temp3], scale_factor, scale_factor));
+                            output->array[temp1] += multiplyFixedPoint(kernel->array[temp2], input->array[temp3], shift_factor, shift_factor);
+                            /*kernel->array[z0 * (kernel->shape[3] * kernel->shape[2] * kernel->shape[1])
+                                          + z1*(kernel->shape[3]*kernel->shape[2])
+                                          + q*(kernel->shape[3]) + k]*
+                            input->array[(x0*stride[0]
+                                          + dilation[0]*z0)*(in_channels *input->shape[1])
+                                         + (x1*stride[1] + dilation[1]*z1)*(input->shape[2]) + q];*/
+
+                        }
+                    }
+                }
+            }
+        }
+    }
+    k2c_bias_add(output, bias);
+    activation(output->array, output->numel);
+}
+
+/**
+ * 2D (spatial) Convolution.
+ * Assumes a "channels last" structure.
+ *
+ * :param output: output tensor.
+ * :param input: input tensor.
+ * :param kernel: kernel tensor.
+ * :param bias: bias tensor.
+ * :param stride: array[2] of stride length of the convolution. Order is {stride dim 1, stride dim 2}.
+ * :param dilation: array[2] dilation rate to use for dilated convolution. Order is {dilation dim 1, dilation dim 2}.
+ * :param activation: activation function to apply to output.
+ */
 void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                 const k2c_tensor* bias, const size_t * stride, const size_t * dilation,
                 k2c_activationType *activation) {

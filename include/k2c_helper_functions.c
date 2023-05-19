@@ -12,6 +12,122 @@ https://github.com/f0uriest/keras2c
 #include <string.h>
 #include "k2c_include.h"
 
+ /**
+   * Convert an array of floating-point values to Q16.16 fixed-point format.
+   *
+   * @param x_float The array of floating-point values to convert.
+   * @param x_fixed The array of Q16.16 fixed-point values to store the converted values in.
+   * @param size The number of elements in the input and output arrays.
+   */
+void float_array_to_fixed(float* x_float, int* x_fixed, size_t size) {
+    for (int i = 0; i < size; i++) {
+        x_fixed[i] = (int)(x_float[i] * 65536.0f + 0.5f);
+    }
+}
+
+/**
+ * Convert an array of Q16.16 fixed-point values to floating-point format.
+ *
+ * @param x_fixed The array of Q16.16 fixed-point values to convert.
+ * @param x_float The array of floating-point values to store the converted values in.
+ * @param size The number of elements in the input and output arrays.
+ */
+void fixed_array_to_float(int* x_fixed, float* x_float, size_t size) {
+    for (int i = 0; i < size; i++) {
+        x_float[i] = (float)x_fixed[i] / 65536.0f;
+    }
+}
+
+/**
+ * Convert a k2c_tensor of floating-point values to Q16.16 fixed-point format.
+ *
+ * @param x_float The k2c_tensor of floating-point values to convert.
+ * @param x_fixed The k2c_tensor of Q16.16 fixed-point values to store the converted values in.
+ * @param size The number of elements in the input and output tensors.
+ */
+void float_tensor_to_fixed(k2c_tensor* x_float, k2c_tensor_int* x_fixed, size_t size) {
+    for (int i = 0; i < size; i++) {
+        x_fixed->array[i] = (int)(x_float->array[i] * 65536.0f + 0.5f);
+    }
+}
+
+/**
+ * Convert a k2c_tensor of Q16.16 fixed-point values to floating-point format.
+ *
+ * @param x_fixed The k2c_tensor of Q16.16 fixed-point values to convert.
+ * @param x_float The k2c_tensor of floating-point values to store the converted values in.
+ * @param size The number of elements in the input and output tensors.
+ */
+void fixed_tensor_to_float(k2c_tensor_int* x_fixed, k2c_tensor* x_float, size_t size) {
+    for (int i = 0; i < size; i++) {
+        x_float->array[i] = (float)x_fixed->array[i] / 65536.0f;
+    }
+}
+
+
+/**
+ * Adds two fixed-point numbers in Qm.n format and returns the result in the same format.
+ *
+ * @param a The first fixed-point number to add.
+ * @param b The second fixed-point number to add.
+ * @param m The number of bits in the integer part of the Qm.n format.
+ * @param n The number of bits in the fractional part of the Qm.n format.
+ * @return The sum of `a` and `b` in Qm.n format.
+ */
+int32_t addFixedPoint(int32_t a, int32_t b, int m, int n) {
+    int q = n;  // The number of bits in the fractional part of the Qm.n format.
+    int qFactor = (1 << q);  // Factor to convert between fixed-point and floating-point.
+    int64_t result = ((int64_t)a << q) + ((int64_t)b << q);  // Shift the Qm.n numbers to align the decimal points and add them together.
+    static int counter = 0;
+    // Check if the result overflows the Qm.n format and clip it to the maximum or minimum value if necessary.
+    int64_t maxVal = (1 << (m + n - 1)) - 1;
+    int64_t minVal = -1 * maxVal - 1;
+    if (result > maxVal * qFactor) {
+        result = maxVal * qFactor;
+
+    }
+    else if (result < minVal * qFactor) {
+        result = minVal * qFactor;
+        counter++;
+        printf("%d,\n", counter);
+        // Handle underflow here
+    }
+
+    // Truncate the result to a signed 32-bit integer, shift it back by q bits, and return it.
+    return (int32_t)(result >> q);
+}
+
+
+
+/**
+ * Multiplies two Qm.n fixed-point numbers and returns the result as a signed 32-bit integer.
+ * If the result overflows the Qm.n format, it is clipped to the maximum or minimum value.
+ * @param a The first Qm.n fixed-point number to multiply.
+ * @param b The second Qm.n fixed-point number to multiply.
+ * @param m The number of bits in the integer part of the Qm.n format.
+ * @param n The number of bits in the fractional part of the Qm.n format.
+ * @return The result of the multiplication, truncated to a signed 32-bit integer.
+ */
+int32_t multiplyFixedPoint(int32_t a, int32_t b, int m, int n) {
+    int q = n;  // The number of bits in the fractional part of the Qm.n format.
+    int qFactor = (1 << q);  // Factor to convert between fixed-point and floating-point.
+    int64_t result = ((int64_t)a * (int64_t)b);  // Multiply the two Qm.n numbers and store the result in a 64-bit integer.
+    // Extract the integer and fractional parts of the multiplication by shifting and masking the result.
+    result = (result >> q) + ((result & (qFactor - 1)) >> q);
+
+    // Check if the result overflows the Qm.n format and clip it to the maximum or minimum value if necessary.
+    int32_t maxVal = (1 << (m + n - 1)) - 1;
+    int32_t minVal = -1 * maxVal - 1;
+    if (result > maxVal) {
+        result = maxVal;
+    }
+    else if (result < minVal) {
+        result = minVal;
+    }
+
+    // Truncate the result to a signed 32-bit integer and return it.
+    return (int32_t)result;
+}
 
 /**
  * Just your basic 1d matrix multipication.
@@ -42,6 +158,41 @@ void k2c_matmul(float * C, const float * A, const float * B, const size_t outrow
     }
 }
 
+/**
+ * Performs fixed-point matrix multiplication with an affine transformation.
+ *
+ * @param C           Pointer to the output matrix C (result of multiplication)
+ * @param A           Pointer to the input matrix A
+ * @param B           Pointer to the input matrix B
+ * @param d           Pointer to the affine transformation vector d
+ * @param outrows     Number of rows in the output matrix C
+ * @param outcols     Number of columns in the output matrix C
+ * @param innerdim    Inner dimension (number of columns in matrix A and rows in matrix B)
+ * @param shift_factor The number of bits to shift the fixed-point multiplication result
+ * @param scale_factor The scaling factor used to convert fixed-point result to floating point
+ */
+void k2c_affine_matmul_fixed_point(int* C, const int* A, const int* B, const int* d,
+    const size_t outrows, const size_t outcols, const size_t innerdim,
+    size_t shift_factor, size_t scale_factor) {
+    // make sure output is empty
+
+    //long int MAC = 0;
+    for (size_t i = 0; i < outrows; ++i) {
+        //MAC = 0;
+        const size_t outrowidx = i * outcols;
+        const size_t inneridx = i * innerdim;
+        for (size_t j = 0; j < outcols; ++j) {   
+            for (size_t k = 0; k < innerdim; ++k) {
+                C[outrowidx + j] += multiplyFixedPoint(A[inneridx + k], B[k * outcols + j], shift_factor, shift_factor);
+                // every mixed point multiplication needs to be shifted 16 bits to the right to get the correct scale (MAC << 16)
+                // we also need to divide by 2^16 to get the value to floating point (done by shifting 16 to the left)
+                //C[outrowidx + j] = (float)(MAC >> 16)/(float)(1<<16);
+            }
+            C[outrowidx + j] += d[j];
+        }
+    }
+    printf("%d and %d\n", (C[0]) >> shift_factor, (C[1]) >> shift_factor);
+}
 
 /**
  * Affine matrix multiplication.
@@ -260,7 +411,23 @@ void k2c_dot(k2c_tensor* C, const k2c_tensor* A, const k2c_tensor* B, const size
                free_axesB, prod_axesA);
 }
 
-
+/**
+ * Adds bias vector b to tensor A.
+ * assumes b is a rank 1 tensor that is added to the last dimension of A.
+ *
+ * :param A: input tensor. Overwritten with outputs.
+ * :param b: bias tensor.
+ */
+void k2c_bias_add_fixed_point(k2c_tensor_int* A, const k2c_tensor_int* b) {
+    int shift_factor = 16;
+    int scale_factor = 0;
+    for (size_t i = 0; i < A->numel; i += b->numel) {
+        for (size_t j = 0; j < b->numel; ++j) {
+            //A->array[i+j] += b->array[j];
+            A->array[i + j] = addFixedPoint(A->array[i + j], b->array[j], shift_factor, shift_factor);
+        }
+    }
+}
 /**
  * Adds bias vector b to tensor A.
  * assumes b is a rank 1 tensor that is added to the last dimension of A.

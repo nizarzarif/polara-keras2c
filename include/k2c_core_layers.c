@@ -11,6 +11,65 @@ https://github.com/f0uriest/keras2c
 #include <string.h>
 #include "k2c_include.h"
 
+
+
+
+ /**
+  * Applies a dense (fully connected) layer to the input tensor using fixed-point arithmetic.
+  *
+  * @param output         Pointer to the output tensor, which stores the result of the dense layer
+  * @param input          Pointer to the input tensor
+  * @param kernel         Pointer to the kernel tensor (weights) of the dense layer
+  * @param bias           Pointer to the bias tensor of the dense layer
+  * @param activation     Function pointer to the activation function to be applied after the dense layer
+  * @param fwork          Pointer to the temporary workspace for intermediate computations
+  * @param shift_factor   The number of bits to shift the fixed-point values during multiplication
+  * @param scale_factor   The scaling factor used to convert fixed-point result to floating point
+  */
+void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const k2c_tensor_int* kernel,
+    const k2c_tensor_int* bias, k2c_activationType* activation, float* fwork,
+    size_t shift_factor, size_t scale_factor) {
+    printf("dense_input_input nb %d \n", input->ndim);
+
+    if (input->ndim <= 2) {
+        size_t outrows;
+
+        if (input->ndim > 1) {
+            outrows = input->shape[0];
+        }
+        else {
+            outrows = 1;
+        }
+
+        const size_t outcols = kernel->shape[1];
+        const size_t innerdim = kernel->shape[0];
+        const size_t outsize = outrows * outcols;
+
+        // Perform affine matrix multiplication between input and kernel, with bias
+        k2c_affine_matmul(output->array, input->array, kernel->array, bias->array,
+            outrows, outcols, innerdim, shift_factor, scale_factor);
+
+        // Apply the activation function to the output tensor
+        activation(output->array, outsize);
+    }
+    else {
+        const size_t axesA[1] = { input->ndim - 1 };
+        const size_t axesB[1] = { 0 };
+        const size_t naxes = 1;
+        const int normalize = 0;
+
+        // Perform dot product between input and kernel, along specified axes
+        k2c_dot(output, input, kernel, axesA, axesB, naxes, normalize, fwork);
+
+        // Add bias to the output tensor
+        k2c_bias_add(output, bias);
+
+        // Apply the activation function to the output tensor
+        activation(output->array, output->numel);
+    }
+}
+
+
 /**
  * Dense (fully connected) Layer.
  *
