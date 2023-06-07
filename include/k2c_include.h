@@ -156,3 +156,9 @@ void fixed_array_to_float(int* x_fixed, float* x_float, int size);
 int32_t multiplyFixedPoint(int32_t a, int32_t b, int m, int n);
 void float_tensor_to_fixed(k2c_tensor* x_float, k2c_tensor_int* x_fixed, size_t size);
 void fixed_tensor_to_float(k2c_tensor_int* x_fixed, k2c_tensor* x_float, size_t size);
+void measure_conv2d_outputs(k2c_tensor_int* fp_conv2d_1_output, k2c_tensor* conv2d_1_output, int shift_factor);
+int containsNaN(float * arr, int size, char* array_name);
+int containsNaN_int(int * arr, int size, char* array_name);
+void printTensor(struct k2c_tensor tensor);
+void printTensorRecursive(float* array, size_t* dim, size_t* stride, size_t totalSize,
+    size_t subTensorSize, size_t ndim, size_t currDim);

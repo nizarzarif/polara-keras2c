@@ -18,8 +18,16 @@ __copyright__ = "Copyright 2020, Rory Conlin"
 __license__ = "MIT"
 __maintainer__ = "Rory Conlin, https://github.com/f0uriest/keras2c"
 __email__ = "wconlin@princeton.edu"
+def remove_and(string):
+    return string.replace('&', '')
 
-
+def add_fp(string):
+    if "fp_" in string:
+        return string
+    if string.startswith('&'):
+        return string.replace('&', '&fp_', 1)
+    else:
+        return 'fp_' + string
 class Layers2C():
     """Creates an object to parse and write layer functions.
 
@@ -34,7 +42,7 @@ class Layers2C():
         self.layers = ''
         self.malloc = malloc
 
-    def write_layers(self, verbose=True):
+    def write_layers(self, verbose=True, datatype='float '):
         """Writes layers in the correct graph order.
 
         Args:
@@ -56,13 +64,15 @@ class Layers2C():
                         if verbose:
                             print('Writing layer ', outp)
                         method = getattr(
-                            self, '_write_layer_' + layer_type(layer))
-                        method(layer, inp, outp, i)
+                            self, '_write_layer_' + layer_type(layer),)
+                        method(layer, inp, outp, i,datatype)
                         written_io |= set(flatten(inp))
                         written_io |= set(flatten(outp))
                         unwritten_io -= set(flatten(inp))
                         unwritten_io -= set(flatten(outp))
         return self.layers
+
+
 
     def _format_io_names(self, layer, inp, outp, model_io=False):
         nm = layer.name
@@ -158,53 +168,95 @@ class Layers2C():
                        ',' + 'k2c_' + \
             layer.get_config()['activation'] + '); \n'
 
-    def _write_layer_Dense(self, layer, inputs, outputs, i):
+    def _write_layer_Dense(self, layer, inputs, outputs, i,datatype='float '):
+        nm, pnm, inputs, outputs = self._format_io_names(
+            layer, inputs, outputs)
+        activation = 'k2c_' + layer.get_config()['activation']
+        if "float" in datatype:
+            self.layers += 'k2c_dense(' + outputs + ',' + inputs + ',' + pnm + \
+                       '_kernel, \n\t' + pnm + '_bias,' + activation + ',' + \
+                       nm + '_fwork); \n'
+        elif "fixed" in datatype:
+            scaling = ", shift_factor, scaling_factor"
+            fp_outputs = add_fp(outputs)
+            fp_inputs = add_fp(inputs)
+            fp_pnm = add_fp(pnm)
+            self.layers += "float_tensor_to_fixed(" + inputs + "," + fp_inputs + ", " + remove_and(inputs) + ".numel);\n"
+            self.layers += 'k2c_dense_fixed_point(' + fp_outputs + ',' + fp_inputs + ',' + fp_pnm + \
+                           '_kernel, \n\t' + fp_pnm + '_bias,' + activation + ',' + \
+                           nm + '_fwork '+scaling + '); \n'
+            self.layers += "fixed_tensor_to_float("+fp_outputs + ", "+outputs +"," + remove_and(outputs)  + ".numel);\n"
+    def _write_layer_Conv(self, layer, inputs, outputs, i,datatype='float '):
         nm, pnm, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         activation = 'k2c_' + layer.get_config()['activation']
 
-        self.layers += 'k2c_dense(' + outputs + ',' + inputs + ',' + pnm + \
-            '_kernel, \n\t' + pnm + '_bias,' + activation + ',' + \
-            nm + '_fwork); \n'
-
-    def _write_layer_Conv(self, layer, inputs, outputs, i):
-        nm, pnm, inputs, outputs = self._format_io_names(
-            layer, inputs, outputs)
-        activation = 'k2c_' + layer.get_config()['activation']
         if layer_type(layer)[-2:] == '1D':
             fname = 'k2c_conv1d('
         elif layer_type(layer)[-2:] == '2D':
             fname = 'k2c_conv2d('
         elif layer_type(layer)[-2:] == '3D':
             fname = 'k2c_conv3d('
-        if layer.get_config()['padding'] == 'valid':
-            self.layers += fname + outputs + ',' + inputs + ',' + \
-                pnm + '_kernel, \n\t' + pnm + '_bias,' + nm + \
-                '_stride,' + nm + '_dilation,' + activation + '); \n'
-        else:
-            self._write_layer_ZeroPad(layer, inputs, pnm +
-                                      '_padded_input', i)
-            self.layers += fname + outputs + ',' + pnm + \
-                '_padded_input,' + pnm + '_kernel, \n\t' + \
-                pnm + '_bias,' + nm + '_stride,' + nm + \
-                '_dilation,' + activation + '); \n'
+        if "float" in datatype:
+            if layer.get_config()['padding'] == 'valid':
+                self.layers += fname + outputs + ',' + inputs + ',' + \
+                    pnm + '_kernel, \n\t' + pnm + '_bias,' + nm + \
+                    '_stride,' + nm + '_dilation,' + activation + '); \n'
+            else:
+                self._write_layer_ZeroPad(layer, inputs, pnm +
+                                          '_padded_input', i)
+                self.layers += fname + outputs + ',' + pnm + \
+                    '_padded_input,' + pnm + '_kernel, \n\t' + \
+                    pnm + '_bias,' + nm + '_stride,' + nm + \
+                    '_dilation,' + activation + '); \n'
 
-    def _write_layer_Conv1D(self, layer, inputs, outputs, i):
+        if "fixed" in datatype:
+            if layer_type(layer)[-2:] == '1D':
+                fname = 'k2c_conv1d('
+            elif layer_type(layer)[-2:] == '2D':
+                fname = 'k2c_conv2d_fixed_point('
+            elif layer_type(layer)[-2:] == '3D':
+                fname = 'k2c_conv3d('
+
+            fixed = ", shift_factor, scaling_factor"
+            scaling = ", shift_factor, scaling_factor"
+            if layer.get_config()['padding'] == 'valid':
+                fp_outputs = add_fp(outputs)
+                fp_inputs = add_fp(inputs)
+                fp_pnm = add_fp(pnm)
+                self.layers += "float_tensor_to_fixed(" + inputs + "," + fp_inputs + ", " + remove_and(
+                    inputs) + ".numel);\n"
+                self.layers += fname + fp_outputs + ',' + fp_inputs + ',' + \
+                               fp_pnm + '_kernel, \n\t' + fp_pnm + '_bias,' + nm + \
+                               '_stride,' + nm + '_dilation,' + activation + fixed + '); \n'
+            else:
+                self._write_layer_ZeroPad(layer, inputs, pnm +
+                                          '_padded_input', i,datatype)
+                fp_outputs = add_fp(outputs)
+                fp_inputs = add_fp(inputs)
+                fp_pnm = add_fp(pnm)
+
+                self.layers += fname + fp_outputs + ',' + fp_pnm + \
+                               '_padded_input,' + fp_pnm + '_kernel, \n\t' + \
+                               fp_pnm + '_bias,' + nm + '_stride,' + nm + \
+                               '_dilation,' + activation + fixed + '); \n'
+            self.layers += "fixed_tensor_to_float(" + fp_outputs + ", "+outputs +"," + remove_and(outputs) + ".numel);\n"
+    def _write_layer_Conv1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Conv(layer, inputs, outputs, i)
 
-    def _write_layer_Conv2D(self, layer, inputs, outputs, i):
+    def _write_layer_Conv2D(self, layer, inputs, outputs, i,datatype='float '):
+        self._write_layer_Conv(layer, inputs, outputs, i,datatype)
+
+    def _write_layer_Conv3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Conv(layer, inputs, outputs, i)
 
-    def _write_layer_Conv3D(self, layer, inputs, outputs, i):
-        self._write_layer_Conv(layer, inputs, outputs, i)
-
-    def _write_layer_MaxPooling1D(self, layer, inputs, outputs, i):
+    def _write_layer_MaxPooling1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Pooling(layer, inputs, outputs, i)
 
-    def _write_layer_AveragePooling1D(self, layer, inputs, outputs, i):
+    def _write_layer_AveragePooling1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Pooling(layer, inputs, outputs, i)
 
-    def _write_layer_Pooling(self, layer, inputs, outputs, i):
+    def _write_layer_Pooling(self, layer, inputs, outputs, i,datatype='float '):
         nm, pnm, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         if 'Max' in layer_type(layer):
@@ -220,37 +272,37 @@ class Layers2C():
             s += inputs + ','
         else:
             self._write_layer_ZeroPad(layer, inputs, pnm +
-                                      '_padded_input', i)
+                                      '_padded_input', i, datatype)
             s += pnm + '_padded_input,'
 
         s += nm + '_pool_size, \n\t' + nm + '_stride); \n'
         self.layers += s
 
-    def _write_layer_MaxPooling2D(self, layer, inputs, outputs, i):
+    def _write_layer_MaxPooling2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Pooling(layer, inputs, outputs, i)
 
-    def _write_layer_AveragePooling2D(self, layer, inputs, outputs, i):
+    def _write_layer_AveragePooling2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Pooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalMaxPooling1D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalMaxPooling1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalMaxPooling2D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalMaxPooling2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalMaxPooling3D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalMaxPooling3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalAveragePooling1D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalAveragePooling1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalAveragePooling2D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalAveragePooling2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalAveragePooling3D(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalAveragePooling3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_GlobalPooling(layer, inputs, outputs, i)
 
-    def _write_layer_GlobalPooling(self, layer, inputs, outputs, i):
+    def _write_layer_GlobalPooling(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         if 'Max' in layer_type(layer):
             self.layers += 'k2c_global_max_pooling('
@@ -258,25 +310,25 @@ class Layers2C():
             self.layers += 'k2c_global_avg_pooling('
         self.layers += outputs + ',' + inputs + '); \n'
 
-    def _write_layer_Add(self, layer, inputs, outputs, i):
+    def _write_layer_Add(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Add')
 
-    def _write_layer_Subtract(self, layer, inputs, outputs, i):
+    def _write_layer_Subtract(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Subtract')
 
-    def _write_layer_Multiply(self, layer, inputs, outputs, i):
+    def _write_layer_Multiply(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Multiply')
 
-    def _write_layer_Maximum(self, layer, inputs, outputs, i):
+    def _write_layer_Maximum(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Maximum')
 
-    def _write_layer_Minimum(self, layer, inputs, outputs, i):
+    def _write_layer_Minimum(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Minimum')
 
-    def _write_layer_Average(self, layer, inputs, outputs, i):
+    def _write_layer_Average(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Merge(layer, inputs, outputs, i, 'Average')
 
-    def _write_layer_Merge(self, layer, inputs, outputs, i, mode):
+    def _write_layer_Merge(self, layer, inputs, outputs, i, mode,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         if mode == 'Subtract':
             self.layers += 'k2c_subtract('
@@ -294,14 +346,14 @@ class Layers2C():
         c = ','.join(inputs)
         self.layers += c + '); \n'
 
-    def _write_layer_Concatenate(self, layer, inputs, outputs, i):
+    def _write_layer_Concatenate(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         self.layers += 'k2c_concatenate(' + outputs + ',' + nm + \
                        '_axis' + ',' + nm + '_num_tensors' + str(i) + ','
         c = ','.join(inputs)
         self.layers += c + '); \n'
 
-    def _write_layer_GRU(self, layer, inputs, outputs, i):
+    def _write_layer_GRU(self, layer, inputs, outputs, i,datatype='float '):
         nm, pnm, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         self.layers += 'k2c_gru(' + outputs + ',' + inputs + ',' + \
@@ -312,7 +364,7 @@ class Layers2C():
             'k2c_' + layer.get_config()['recurrent_activation'] + \
             ',' + 'k2c_' + layer.get_config()['activation'] + '); \n'
 
-    def _write_layer_SimpleRNN(self, layer, inputs, outputs, i):
+    def _write_layer_SimpleRNN(self, layer, inputs, outputs, i,datatype='float '):
         nm, pnm, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         self.layers += 'k2c_simpleRNN(' + outputs + ',' + inputs + \
@@ -322,7 +374,7 @@ class Layers2C():
             nm + '_return_sequences,' + 'k2c_' + \
             layer.get_config()['activation'] + '); \n'
 
-    def _write_layer_Activation(self, layer, inputs, outputs, i):
+    def _write_layer_Activation(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         activation = 'k2c_' + layer.get_config()['activation']
@@ -334,22 +386,22 @@ class Layers2C():
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_LeakyReLU(self, layer, inputs, outputs, i):
+    def _write_layer_LeakyReLU(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_AdvancedActivation(layer, inputs, outputs, i)
 
-    def _write_layer_PReLU(self, layer, inputs, outputs, i):
+    def _write_layer_PReLU(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_AdvancedActivation(layer, inputs, outputs, i)
 
-    def _write_layer_ELU(self, layer, inputs, outputs, i):
+    def _write_layer_ELU(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_AdvancedActivation(layer, inputs, outputs, i)
 
-    def _write_layer_ThresholdedReLU(self, layer, inputs, outputs, i):
+    def _write_layer_ThresholdedReLU(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_AdvancedActivation(layer, inputs, outputs, i)
 
-    def _write_layer_ReLU(self, layer, inputs, outputs, i):
+    def _write_layer_ReLU(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_AdvancedActivation(layer, inputs, outputs, i)
 
-    def _write_layer_AdvancedActivation(self, layer, inputs, outputs, i):
+    def _write_layer_AdvancedActivation(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         if is_model_input:
@@ -416,56 +468,56 @@ class Layers2C():
             self.layers += outputs + '.array = &' + inputs + \
                 '.array[0]; // rename for clarity \n'
 
-    def _write_layer_Reshape(self, layer, inputs, outputs, i):
+    def _write_layer_Reshape(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self.layers += 'k2c_reshape(' + outputs + ',' + inputs + ',' + nm + \
             '_newshp,' + nm + '_newndim); \n'
 
-    def _write_layer_Flatten(self, layer, inputs, outputs, i):
+    def _write_layer_Flatten(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self.layers += 'k2c_flatten(' + outputs + ',' + inputs + '); \n'
 
-    def _write_layer_Permute(self, layer, inputs, outputs, i):
+    def _write_layer_Permute(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         self.layers += 'k2c_permute_dims(' + outputs + ',' + inputs + \
             ',' + nm + '_permute); \n'
 
-    def _write_layer_RepeatVector(self, layer, inputs, outputs, i):
+    def _write_layer_RepeatVector(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         self.layers += 'k2c_repeat_vector(' + outputs + ',' + inputs + \
             ',' + nm + '_n); \n'
 
-    def _write_layer_Dot(self, layer, inputs, outputs, i):
+    def _write_layer_Dot(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         self.layers += 'k2c_dot(' + outputs + ',' + inputs[0] + \
                        ',' + inputs[1] + ',' + nm + '_axesA,' + \
                        '\n\t' + nm + '_axesB,' + nm + '_naxes,' + \
                        nm + '_normalize,' + nm + '_fwork); \n'
 
-    def _write_layer_BatchNormalization(self, layer, inputs, outputs, i):
+    def _write_layer_BatchNormalization(self, layer, inputs, outputs, i,datatype='float '):
         nm, pnm, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         self.layers += 'k2c_batch_norm(' + outputs + ',' + inputs + \
                        ',' + pnm + '_mean,' + pnm + '_stdev,' + pnm + \
                        '_gamma,' + pnm + '_beta,' + nm + '_axis); \n'
 
-    def _write_layer_Embedding(self, layer, inputs, outputs, i):
+    def _write_layer_Embedding(self, layer, inputs, outputs, i,datatype='float '):
         _, pnm, inputs, outputs = self._format_io_names(layer, inputs, outputs)
         self.layers += 'k2c_embedding(' + outputs + ',' + inputs + \
             ',' + pnm + '_kernel); \n'
 
-    def _write_layer_UpSampling1D(self, layer, inputs, outputs, i):
+    def _write_layer_UpSampling1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_UpSampling(layer, inputs, outputs, i)
 
-    def _write_layer_UpSampling2D(self, layer, inputs, outputs, i):
+    def _write_layer_UpSampling2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_UpSampling(layer, inputs, outputs, i)
 
-    def _write_layer_UpSampling3D(self, layer, inputs, outputs, i):
+    def _write_layer_UpSampling3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_UpSampling(layer, inputs, outputs, i)
 
-    def _write_layer_UpSampling(self, layer, inputs, outputs, i):
+    def _write_layer_UpSampling(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         if layer_type(layer)[-2:] == '1D':
@@ -476,16 +528,16 @@ class Layers2C():
             self.layers += 'k2c_upsampling3d('
         self.layers += outputs + ',' + inputs + ',' + nm + '_size); \n'
 
-    def _write_layer_Cropping1D(self, layer, inputs, outputs, i):
+    def _write_layer_Cropping1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Cropping(layer, inputs, outputs, i)
 
-    def _write_layer_Cropping2D(self, layer, inputs, outputs, i):
+    def _write_layer_Cropping2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Cropping(layer, inputs, outputs, i)
 
-    def _write_layer_Cropping3D(self, layer, inputs, outputs, i):
+    def _write_layer_Cropping3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_Cropping(layer, inputs, outputs, i)
 
-    def _write_layer_Cropping(self, layer, inputs, outputs, i):
+    def _write_layer_Cropping(self, layer, inputs, outputs, i,datatype='float '):
         nm, _, inputs, outputs = self._format_io_names(
             layer, inputs, outputs)
         if layer_type(layer)[-2:] == '1D':
@@ -496,16 +548,16 @@ class Layers2C():
             self.layers += 'k2c_crop3d('
         self.layers += outputs + ',' + inputs + ',' + nm + '_crop); \n'
 
-    def _write_layer_ZeroPadding1D(self, layer, inputs, outputs, i):
+    def _write_layer_ZeroPadding1D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_ZeroPad(layer, inputs, outputs, i)
 
-    def _write_layer_ZeroPadding2D(self, layer, inputs, outputs, i):
+    def _write_layer_ZeroPadding2D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_ZeroPad(layer, inputs, outputs, i)
 
-    def _write_layer_ZeroPadding3D(self, layer, inputs, outputs, i):
+    def _write_layer_ZeroPadding3D(self, layer, inputs, outputs, i,datatype='float '):
         self._write_layer_ZeroPad(layer, inputs, outputs, i)
 
-    def _write_layer_ZeroPad(self, layer, inputs, outputs, i):
+    def _write_layer_ZeroPad(self, layer, inputs, outputs, i,datatype='float '):
         if 'Zero' in layer_type(layer):
             nm, _, inputs, outputs = self._format_io_names(
                 layer, inputs, outputs)
@@ -517,59 +569,65 @@ class Layers2C():
             self.layers += 'k2c_pad2d('
         elif layer_type(layer)[-2:] == '3D':
             self.layers += 'k2c_pad3d('
-        self.layers += outputs + ',' + inputs + ',' + nm + \
+        if 'float' in datatype:
+            self.layers += outputs + ',' + inputs + ',' + nm + \
             '_fill, \n\t' + nm + '_pad); \n'
+        elif 'fixed' in datatype:
+            self.layers += outputs + ',' + inputs + ',' + nm + \
+                           '_fill, \n\t' + nm + '_pad); \n'
+            self.layers += "float_tensor_to_fixed(" + outputs + "," + add_fp(outputs)  + ", " + remove_and(
+            outputs) + ".numel);\n"
 
-    def _write_layer_Dropout(self, layer, inputs, outputs, i):
+    def _write_layer_Dropout(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_SpatialDropout1D(self, layer, inputs, outputs, i):
+    def _write_layer_SpatialDropout1D(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_SpatialDropout2D(self, layer, inputs, outputs, i):
+    def _write_layer_SpatialDropout2D(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_SpatialDropout3D(self, layer, inputs, outputs, i):
+    def _write_layer_SpatialDropout3D(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_ActivityRegularization(self, layer, inputs, outputs, i):
+    def _write_layer_ActivityRegularization(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_GaussianNoise(self, layer, inputs, outputs, i):
+    def _write_layer_GaussianNoise(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_GaussianDropout(self, layer, inputs, outputs, i):
+    def _write_layer_GaussianDropout(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_AlphaDropout(self, layer, inputs, outputs, i):
+    def _write_layer_AlphaDropout(self, layer, inputs, outputs, i,datatype='float '):
         _, _, inputs, outputs, is_model_input, is_model_output = self._format_io_names(
             layer, inputs, outputs, True)
         self._write_dummy_layer(layer, inputs, outputs, i,
                                 is_model_input, is_model_output)
 
-    def _write_layer_Input(self, layer, inputs, outputs, i):
+    def _write_layer_Input(self, layer, inputs, outputs, i,datatype='float '):
         self.layers += ''
 
-    def _write_layer_InputLayer(self, layer, inputs, outputs, i):
+    def _write_layer_InputLayer(self, layer, inputs, outputs, i,datatype='float '):
         self.layers += ''

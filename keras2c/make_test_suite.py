@@ -13,7 +13,9 @@ from keras2c.io_parsing import get_model_io_names
 from keras2c.weights2c import Weights2C
 import tensorflow as tf
 import subprocess
+import os
 tf.compat.v1.disable_eager_execution()
+maxndim = 5
 
 __author__ = "Rory Conlin"
 __copyright__ = "Copyright 2020, Rory Conlin"
@@ -22,7 +24,7 @@ __maintainer__ = "Rory Conlin, https://github.com/f0uriest/keras2c"
 __email__ = "wconlin@princeton.edu"
 
 
-def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=False, verbose=True, tol=1e-5):
+def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=False, verbose=True, tol=1e-5, datatype='float '):
     """Generates code to test the generated C function.
 
     Generates random inputs to the model, and gets the corresponding predictions for them.
@@ -63,15 +65,15 @@ def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=Fa
         input_shape.insert(i, temp_input_shape)
   #  for i in range(num_outputs):
   #      output_shape.insert(i, model.outputs[i].shape[1:])
-
+    Sout=""
     file = open(function_name + '_test_suite.c', "x+")
     s = '#include <stdio.h> \n'
     s += '#include <math.h> \n'
-    s += '#include <time.h> \n'
+    #s += '#include <time.h> \n'
     s += '#include "./include/k2c_include.h" \n'
     s += '#include "' + function_name + '.h" \n\n'
     s += 'float maxabs(k2c_tensor *tensor1, k2c_tensor *tensor2);\n'
-    s += 'struct timeval GetTimeStamp(); \n \n'
+    #s += 'struct timeval GetTimeStamp(); \n \n'
     file.write(s)
     for i in range(num_tests):
         if i == num_tests//2 and stateful:
@@ -94,9 +96,48 @@ def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=Fa
             if ct > 20:
                 raise Exception('Cannot find inputs to the \
                 network that result in a finite output')
+        #rand_inputs= np.clip(rand_inputs,-1,0.99)
         for j, _ in enumerate(model_inputs):
             file.write(Weights2C.array2c((rand_inputs[j][0, :]), 'test' + str(i+1) +
                                          '_' + model_inputs[j] + '_input'))
+            # add C code to quantize input
+
+            if 'int8_t' in datatype:
+                temp = rand_input.flatten(order='C')
+                size = rand_input.size
+                shp = temp_input_shape
+                ndim = int(len(shp))
+                shp = np.concatenate((shp, np.ones(maxndim - ndim)))
+
+                name = 'test' + str(i+1) + '_' + model_inputs[j] + '_input'
+                Sout = datatype + "quant_"+ name +"_array["+ str(rand_input.size) + "]  = {0};\n"
+                Sout += "for( int i=0 ; i< " + str(rand_input.size) + " ;i++) {\n"
+                Sout +=  "quant_"+ name+ "_array[i] = (128) *"+ name+ "_array[i];}\n"
+                #last_line = s.splitlines()
+                Sout += 'k2c_tensor ' + name + ' = {&quant_' + name + \
+                     '_array[0],' + str(temp_input_shape.shape[0]) + ',' + str(int(size)) + ',{' + \
+                np.array2string(shp, separator=',')[
+                    1:-1] + '}}; \n'
+                #Sout += name + " = " + "quant_"+ name + ";\n"
+                #file.write( Sout)
+            elif 'fixed' in datatype:
+                temp = rand_input.flatten(order='C')
+                size = rand_input.size
+                shp = temp_input_shape
+                ndim = int(len(shp))
+                shp = np.concatenate((shp, np.ones(maxndim - ndim)))
+
+                name = 'test' + str(i+1) + '_' + model_inputs[j] + '_input'
+                Sout = "int " + "fp_"+ name +"_array["+ str(rand_input.size) + "]  = {0};\n"
+
+                #last_line = s.splitlines()
+                Sout += 'k2c_tensor_int fp_' + name + ' = {&fp_' + name + \
+                     '_array[0],' + str(temp_input_shape.shape[0]) + ',' + str(int(size)) + ',{' + \
+                np.array2string(shp, separator=',')[
+                    1:-1] + '}}; \n'
+                Sout += "float_tensor_to_fixed(&" + name + ", &fp_" + name + " ," + str(rand_input.size) + " );\n"
+                #Sout += name + " = " + "quant_"+ name + ";\n"
+                #file.write( Sout)
 
             # write predictions
         if not isinstance(outputs, list):
@@ -109,7 +150,7 @@ def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=Fa
                                          model_outputs[j] + '_test' + str(i+1)))
     s = 'int main(){\n'
     file.write(s)
-    
+    file.write(Sout)
     s = ' float errors[' + str(num_tests*num_outputs) + '];\n'
     s += ' size_t num_tests = ' + str(num_tests) + '; \n'
     s += 'size_t num_outputs = ' + str(num_outputs) + '; \n'
@@ -122,7 +163,7 @@ def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=Fa
     if stateful:
         reset_sig = function_name + '_reset_states();'
         s += reset_sig
-    s += 'clock_t t0 = clock(); \n'
+    #s += 'clock_t t0 = clock(); \n'
     file.write(s)
 
     for i in range(num_tests):
@@ -133,16 +174,21 @@ def make_test_suite(model, function_name, malloc_vars, num_tests=10, stateful=Fa
                     '_input' for inp in model_inputs]
         model_out = ['&c_' + outp + '_test' +
                      str(i+1) for outp in model_outputs]
+        if "fixed" in datatype:
+            model_in = ['&fp_test' + str(i + 1) + '_' + inp +
+                        '_input' for inp in model_inputs]
+
         s += ','.join(model_in + model_out + list(malloc_vars))
         s += '); \n'
         file.write(s)
     file.write('\n')
+    '''
     s = 'clock_t t1 = clock(); \n'
     s += 'printf("Average time over ' + str(num_tests) + \
         ' tests: %e s \\n\", \n ((double)t1-t0)/(double)CLOCKS_PER_SEC/(double)' + \
         str(num_tests) + '); \n'
     file.write(s)
-
+    '''
     for i in range(num_tests):
         for j, _ in enumerate(model_outputs):
             s = 'errors[' + str(i*num_outputs+j) + '] = maxabs(&keras_' + model_outputs[j] + '_test' + \

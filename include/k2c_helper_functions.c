@@ -12,6 +12,131 @@ https://github.com/f0uriest/keras2c
 #include <string.h>
 #include "k2c_include.h"
 
+
+
+
+ 
+ /**
+  * Prints the values of a tensor of up to 5 dimensions.
+  *
+  * @param tensor The tensor to print.
+  */
+void printTensor( k2c_tensor tensor) {
+    size_t dim[K2C_MAX_NDIM];
+    size_t stride[K2C_MAX_NDIM];
+
+    // Initialize dimensions and strides
+    for (size_t i = 0; i < tensor.ndim; i++) {
+        dim[i] = tensor.shape[i];
+        stride[i] = (i == 0) ? 1 : stride[i - 1] * dim[i - 1];
+    }
+
+    // Calculate total size and number of elements per sub-tensor
+    size_t totalSize = tensor.numel;
+    size_t subTensorSize = tensor.ndim > 1 ? tensor.numel / tensor.shape[0] : tensor.numel;
+
+    // Print values recursively
+    printTensorRecursive(tensor.array, dim, stride, totalSize, subTensorSize, tensor.ndim, 0);
+}
+
+void printTensorRecursive(float* array, size_t* dim, size_t* stride, size_t totalSize,
+    size_t subTensorSize, size_t ndim, size_t currDim) {
+    for (size_t i = 0; i < dim[currDim]; i++) {
+        size_t offset = i * stride[currDim];
+
+        if (currDim < ndim - 1) {
+            printTensorRecursive(array + offset, dim, stride, totalSize, subTensorSize,
+                ndim, currDim + 1);
+        }
+        else {
+            for (size_t j = 0; j < subTensorSize; j++) {
+                printf("%f ", array[offset + j]);
+            }
+            printf("\n");
+        }
+    }
+}
+
+/**
+* Checks if the given float array contains any NaN (Not a Number) values.
+*
+* @param arr The float array to be checked.
+* @param size The size of the array.
+* @param array_name The name of the array to be displayed in the output message.
+* @return The number of NaN values found in the array.
+*/
+int containsNaN_int(int * arr, int size, char* array_name) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+        if (isnan((float)arr[i])) {
+            count++;  // Array contains nan
+        }
+        else {
+            ;
+        }
+    }
+    if (count > 0) {
+        printf("%s array contains %d NaN\n", array_name, count);
+    }
+    return count;  // return number of NaN
+}
+ /**
+  * Checks if the given float array contains any NaN (Not a Number) values.
+  *
+  * @param arr The float array to be checked.
+  * @param size The size of the array.
+  * @param array_name The name of the array to be displayed in the output message.
+  * @return The number of NaN values found in the array.
+  */
+int containsNaN(float * arr, int size, char * array_name) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+        if (isnan(arr[i])) {
+            count++;  // Array contains nan
+        }
+        else {
+            ;
+        }
+    }
+    if (count > 0) {
+        printf("%s array contains %d NaN\n",array_name,count);
+    }
+    return count;  // return number of NaN
+}
+
+ /**
+  * Measure the difference and percentage of error between fixed-point and floating-point convolution outputs.
+  *
+  * @param fp_conv2d_1_output Pointer to the array of fixed-point convolution outputs.
+  * @param conv2d_1_output Pointer to the array of floating-point convolution outputs.
+  * @param output_size The size of the output arrays.
+  * @param shift_factor The shift factor used for converting floating-point values to fixed-point representation.
+  */
+void measure_conv2d_outputs(k2c_tensor_int* fp_tensor, k2c_tensor * float_tensor, int shift_factor) {
+    // Measure the difference and percentage of error
+    double diff_sum = 0.0;
+    double percent_error_sum = 0.0;
+    int output_size = fp_tensor->numel;
+    containsNaN(fp_tensor->array, fp_tensor->numel,"fp_tensor->array");
+    containsNaN(float_tensor->array, float_tensor->numel,"float_tensor->array");
+    for (int i = 0; i < output_size; i++) {
+        int fp_value = fp_tensor->array[i];
+        float float_value = float_tensor->array[i] * pow(2.0, shift_factor);  // Convert float value to fixed-point
+
+        double diff = fabs(fp_value - float_value);
+        double percent_error = (diff / fabs(fp_value)) * 100.0;
+
+        diff_sum += diff;
+        percent_error_sum += percent_error;
+    }
+
+    double avg_diff = diff_sum / output_size;
+    double avg_percent_error = percent_error_sum / output_size;
+
+    printf("Average difference: %f\n", avg_diff);
+    printf("Average percentage of error: %f%%\n", avg_percent_error);
+}
+
  /**
    * Convert an array of floating-point values to Q16.16 fixed-point format.
    *
@@ -22,6 +147,9 @@ https://github.com/f0uriest/keras2c
 void float_array_to_fixed(float* x_float, int* x_fixed, size_t size) {
     for (int i = 0; i < size; i++) {
         x_fixed[i] = (int)(x_float[i] * 65536.0f + 0.5f);
+        if (isnan(x_fixed[i])) {
+            printf("error at i = %d\n",i);
+        };
     }
 }
 
@@ -34,7 +162,7 @@ void float_array_to_fixed(float* x_float, int* x_fixed, size_t size) {
  */
 void fixed_array_to_float(int* x_fixed, float* x_float, size_t size) {
     for (int i = 0; i < size; i++) {
-        x_float[i] = (float)x_fixed[i] / 65536.0f;
+        x_float[i] = ((float)x_fixed[i]) / 65536.0f;
     }
 }
 
@@ -60,7 +188,7 @@ void float_tensor_to_fixed(k2c_tensor* x_float, k2c_tensor_int* x_fixed, size_t 
  */
 void fixed_tensor_to_float(k2c_tensor_int* x_fixed, k2c_tensor* x_float, size_t size) {
     for (int i = 0; i < size; i++) {
-        x_float->array[i] = (float)x_fixed->array[i] / 65536.0f;
+        x_float->array[i] = ((float)x_fixed->array[i]) / 65536.0f;
     }
 }
 

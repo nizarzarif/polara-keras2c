@@ -46,6 +46,63 @@ void k2c_pad1d(k2c_tensor* output, const k2c_tensor* input, const float fill,
 
 
 /**
+ * Pad a 2D tensor with symmetric padding.
+ *
+ * @param output  Pointer to the output tensor.
+ * @param input   Pointer to the input tensor.
+ * @param fill    Value to fill the padded regions with.
+ * @param pad     Array of padding values [top, bottom, left, right].
+ *                Assumes symmetric padding, so only the top padding value is used.
+ */
+ /*
+void k2c_pad2d(k2c_tensor* output, const k2c_tensor* input, const float fill,
+    const size_t* pad) {
+    // Calculate input tensor dimensions
+    const size_t in_height = input->shape[0];
+    const size_t in_width = input->shape[1];
+    const size_t in_channels = input->shape[2];
+
+    // Calculate padding values
+    const size_t padding = pad[0];  // Assuming symmetric padding, taking the top padding value
+
+    // Calculate the new dimensions after padding
+    const size_t out_height = in_height + 2 * padding;
+    const size_t out_width = in_width + 2 * padding;
+
+    // set output array to fill value
+    if (fabs(fill) < 1e-6) {
+        // fill is ~zero, use memset
+        memset(output->array, 0, output->numel * sizeof(output->array[0]));
+    }
+    else {
+        for (size_t i = 0; i < output->numel; ++i) {
+            output->array[i] = fill;
+        }
+    }
+
+    // memcpy the old array in the middle with padding
+    const size_t num = in_channels * in_width;
+    const size_t padded_num = in_channels * out_width;  // Adjusted for padded width
+    const size_t step = padded_num;
+
+    // Calculate the offset for symmetric padding
+    size_t offset = in_channels * padding * out_width + in_channels * padding;
+
+    for (size_t i = 0; i < in_height; ++i) {
+        memcpy(&output->array[offset],
+            &input->array[i * num],
+            num * sizeof(input->array[0]));
+        offset += step;
+    }
+
+    // Check for NaN values in the output array
+    int nan_count = containsNaN(output->array, output->numel);
+    if (nan_count > 0) {
+        printf("The output array contains %d NaN.\n", nan_count);
+    }
+}
+*/
+/**
  * 2D (spatial) Padding.
  *
  * :param output: tensor to store padded output data.
@@ -53,6 +110,7 @@ void k2c_pad1d(k2c_tensor* output, const k2c_tensor* input, const float fill,
  * :param fill: value to fill in padded areas.
  * :param pad: array[4] of how many rows/cols to pad. Order is {before dim 1, after dim 1, before dim 2, after dim 2}.
  */
+
 void k2c_pad2d(k2c_tensor* output, const k2c_tensor* input, const float fill,
                const size_t * pad) {
 
@@ -62,7 +120,10 @@ void k2c_pad2d(k2c_tensor* output, const k2c_tensor* input, const float fill,
     const size_t pad_top = pad[0];
     const size_t pad_left = pad[2];
     const size_t pad_right = pad[3];
+    int nan_count = 0;
+  
 
+    containsNaN(input->array, input->numel,"input->array");
     // set output array to fill value
     if (fabs(fill) < 1e-6) {
         // fill is ~zero, use memset
@@ -84,6 +145,8 @@ void k2c_pad2d(k2c_tensor* output, const k2c_tensor* input, const float fill,
                num*sizeof(input->array[0]));
         offset += step;
     }
+    containsNaN(output->array, output->numel,"output->array");
+
 }
 
 
@@ -252,7 +315,12 @@ void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
     const size_t out_cols = output->shape[1];
     const size_t out_channels = output->shape[2];
     const size_t in_channels = input->shape[2];
-
+    /*
+    for (int i = 0; i < kernel->numel; i++)
+    {
+        printf("%f\n", kernel->array[i]);
+    }
+    */
     for (size_t x0=0; x0 < out_rows; ++x0) {
         for (size_t x1=0; x1 < out_cols; ++x1) {
             for (size_t z0=0; z0 < kernel->shape[0]; ++z0) {
@@ -267,12 +335,21 @@ void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
                                               input->array[(x0*stride[0]
                                                             + dilation[0]*z0)*(input->shape[2]*input->shape[1])
                                                            + (x1*stride[1] + dilation[1]*z1)*(input->shape[2]) + q];
+                           
+                            
+                           /*printf("%f += %f * %f \n", output->array[x0 * (output->shape[2] * output->shape[1])
+                                + x1 * (output->shape[2]) + k], kernel->array[z0 * (kernel->shape[3] * kernel->shape[2] * kernel->shape[1])
+                                + z1 * (kernel->shape[3] * kernel->shape[2])
+                                + q * (kernel->shape[3]) + k], input->array[(x0 * stride[0]
+                                    + dilation[0] * z0) * (input->shape[2] * input->shape[1])
+                                + (x1 * stride[1] + dilation[1] * z1) * (input->shape[2]) + q]);*/ 
                         }
                     }
                 }
             }
         }
     }
+
     k2c_bias_add(output,bias);
     activation(output->array,output->numel);
 }
@@ -488,4 +565,58 @@ void k2c_upsampling3d(k2c_tensor* output, const k2c_tensor* input, const size_t 
             }
         }
     }
+}
+
+/**
+ * Performs separable convolution operation on a 2D input tensor.
+ *
+ * @param output          Output tensor to store the result of the convolution.
+ * @param input           Input tensor for the convolution operation.
+ * @param depthwise_kernel    Depthwise convolution kernel tensor.
+ * @param pointwise_kernel    Pointwise convolution kernel tensor.
+ * @param bias            Bias tensor to be added to the output.
+ * @param stride          Array specifying the stride values for both spatial dimensions.
+ * @param dilation        Array specifying the dilation values for both spatial dimensions.
+ * @param activation      Activation function pointer to apply to the output tensor.
+ */
+void k2c_separable_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* depthwise_kernel,
+    const k2c_tensor* pointwise_kernel, const k2c_tensor* bias,
+    const size_t* stride, const size_t* dilation, k2c_activationType* activation) {
+
+    // Initialize the output tensor with zeros
+    memset(output->array, 0, output->numel * sizeof(output->array[0]));
+
+    // Extract relevant dimensions for convenience
+    const size_t out_rows = output->shape[0];
+    const size_t out_cols = output->shape[1];
+    const size_t out_channels = output->shape[2];
+    const size_t in_channels = input->shape[2];
+
+    // Perform separable convolution
+    for (size_t x0 = 0; x0 < out_rows; ++x0) {
+        for (size_t x1 = 0; x1 < out_cols; ++x1) {
+            for (size_t z0 = 0; z0 < depthwise_kernel->shape[0]; ++z0) {
+                for (size_t z1 = 0; z1 < depthwise_kernel->shape[1]; ++z1) {
+                    for (size_t q = 0; q < in_channels; ++q) {
+                        // Depthwise Convolution
+                        const float depthwise_val = depthwise_kernel->array[z0 * (depthwise_kernel->shape[3] * depthwise_kernel->shape[2] * depthwise_kernel->shape[1])
+                            + z1 * (depthwise_kernel->shape[3] * depthwise_kernel->shape[2])
+                            + q * (depthwise_kernel->shape[3]) + 0] *
+                            input->array[(x0 * stride[0] + dilation[0] * z0) * (input->shape[2] * input->shape[1])
+                            + (x1 * stride[1] + dilation[1] * z1) * (input->shape[2]) + q];
+
+                        for (size_t k = 0; k < out_channels; ++k) {
+                            // Pointwise Convolution
+                            output->array[x0 * (output->shape[2] * output->shape[1]) + x1 * (output->shape[2]) + k] +=
+                                depthwise_val * pointwise_kernel->array[q * (pointwise_kernel->shape[1]) + k];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add bias and apply activation function
+    k2c_bias_add(output, bias);
+    activation(output->array, output->numel);
 }
