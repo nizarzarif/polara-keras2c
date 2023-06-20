@@ -77,7 +77,8 @@ except:
 #model.summary()
 #model = from_pretrained_keras("nateraw/keras-mnist-convnet-demo")
 
-model = from_pretrained_keras("merve/mnist")
+#model = from_pretrained_keras("merve/mnist")
+model = from_pretrained_keras("nateraw/keras-mnist-convnet")
 
 # allowed datatype for now are 'float ', 'int ', and 'int8_t ', 'bool ' and 'fixed '
 k2c(model, function_name, malloc=False, num_tests=1, verbose=True, datatype='fixed ')

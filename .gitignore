@@ -36,3 +36,5 @@ x64/Debug/polara-keras2c.vcxproj.FileListAbsolute.txt
 *.filters
 *.sln
 *.vcxproj
+mnist_train.csv
+mnist_test.csv

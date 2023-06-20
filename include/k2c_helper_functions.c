@@ -12,9 +12,48 @@ https://github.com/f0uriest/keras2c
 #include <string.h>
 #include "k2c_include.h"
 
+ /**
+  * Finds the index of the maximum element in a float array.
+  *
+  * @param arr The input float array.
+  * @param size The size of the array.
+  * @return The index of the maximum element.
+  */
+int argmax(const float arr[], int size) {
+    int maxIndex = 0;
+    float maxValue = arr[0];
 
+    // Iterate over the array to find the maximum element
+    for (int i = 1; i < size; i++) {
+        // Update the maximum value and its index if a larger value is found
+        if (arr[i] > maxValue) {
+            maxValue = arr[i];
+            maxIndex = i;
+        }
+    }
 
+    return maxIndex;
+}
 
+ /**
+  * Compare two float arrays and calculate the percentage of error.
+  *
+  * @param array1 The first float array.
+  * @param array2 The second float array.
+  * @param size The size of the arrays.
+  * @return The average percentage of error between the two arrays.
+  */
+double calculate_percentage_error(const float* array1, const float* array2, int size) {
+    double error_sum = 0.0;
+    for (int i = 0; i < size; i++) {
+        double diff = fabs(array1[i] - array2[i]);
+        double percent_error = (diff / fabs(array1[i])) * 100.0;
+        error_sum += percent_error;
+
+        //printf("Difference at index %d: %f\n", i, diff);
+    }
+    return error_sum / size;
+}
  
  /**
   * Prints the values of a tensor of up to 5 dimensions.
@@ -117,8 +156,8 @@ void measure_conv2d_outputs(k2c_tensor_int* fp_tensor, k2c_tensor * float_tensor
     double diff_sum = 0.0;
     double percent_error_sum = 0.0;
     int output_size = fp_tensor->numel;
-    containsNaN(fp_tensor->array, fp_tensor->numel,"fp_tensor->array");
-    containsNaN(float_tensor->array, float_tensor->numel,"float_tensor->array");
+    //containsNaN(fp_tensor->array, fp_tensor->numel,"fp_tensor->array");
+    //containsNaN(float_tensor->array, float_tensor->numel,"float_tensor->array");
     for (int i = 0; i < output_size; i++) {
         int fp_value = fp_tensor->array[i];
         float float_value = float_tensor->array[i] * pow(2.0, shift_factor);  // Convert float value to fixed-point
@@ -316,11 +355,14 @@ void k2c_affine_matmul_fixed_point(int* C, const int* A, const int* B, const int
                 // we also need to divide by 2^16 to get the value to floating point (done by shifting 16 to the left)
                 //C[outrowidx + j] = (float)(MAC >> 16)/(float)(1<<16);
             }
-            C[outrowidx + j] += d[j];
+            C[outrowidx + j] = addFixedPoint(C[outrowidx + j], d[j],shift_factor,shift_factor);
+            //C[outrowidx + j] += d[j];
         }
     }
     printf("%d and %d\n", (C[0]) >> shift_factor, (C[1]) >> shift_factor);
 }
+
+
 
 /**
  * Affine matrix multiplication.

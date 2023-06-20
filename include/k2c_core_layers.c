@@ -46,7 +46,7 @@ void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const 
         const size_t outsize = outrows * outcols;
 
         // Perform affine matrix multiplication between input and kernel, with bias
-        k2c_affine_matmul(output->array, input->array, kernel->array, bias->array,
+        k2c_affine_matmul_fixed_point(output->array, input->array, kernel->array, bias->array,
             outrows, outcols, innerdim, shift_factor, scale_factor);
 
         // Apply the activation function to the output tensor

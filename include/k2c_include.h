@@ -162,3 +162,6 @@ int containsNaN_int(int * arr, int size, char* array_name);
 void printTensor(struct k2c_tensor tensor);
 void printTensorRecursive(float* array, size_t* dim, size_t* stride, size_t totalSize,
     size_t subTensorSize, size_t ndim, size_t currDim);
+void k2c_affine_matmul_fixed_point(int* C, const int* A, const int* B, const int* d,
+    const size_t outrows, const size_t outcols, const size_t innerdim,
+    size_t shift_factor, size_t scale_factor);

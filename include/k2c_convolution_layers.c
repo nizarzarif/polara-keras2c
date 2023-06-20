@@ -257,8 +257,8 @@ void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input,
     const size_t out_rows = output->shape[0];
     const size_t out_cols = output->shape[1];
     const size_t out_channels = output->shape[2];
-    //const size_t in_channels = input->shape[2];
-    const size_t in_channels = 1;
+    const size_t in_channels = input->shape[2];
+    //const size_t in_channels = 1;
     int temp1, temp2, temp3, counter;
     for (size_t x0 = 0; x0 < out_rows; ++x0) {
         for (size_t x1 = 0; x1 < out_cols; ++x1) {
@@ -289,7 +289,7 @@ void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input,
             }
         }
     }
-    k2c_bias_add(output, bias);
+    k2c_bias_add_fixed_point(output, bias);
     activation(output->array, output->numel);
 }
 

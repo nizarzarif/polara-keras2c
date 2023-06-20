@@ -2,7 +2,99 @@
 #include <math.h> 
 #include "./include/k2c_include.h" 
 #include "simplenet.h" 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stddef.h>
+#include <string.h>
 
+#define MAX_LINE_LENGTH 8192
+#define IMAGE_SIZE 28
+#define MAX_PIXELS (IMAGE_SIZE * IMAGE_SIZE)
+
+typedef struct {
+    int label;
+    int pixels[MAX_PIXELS];
+} Image;
+
+void processLine(const char* line) {
+    static int count = 0;
+    Image image;
+    char* token = strtok(line, ",");
+
+    // Read the label from the first column
+    if (token != NULL) {
+        sscanf(token, "%d", &(image.label));
+    }
+    else {
+        printf("Failed to read the label.\n");
+        return;
+    }
+
+    // Read the pixel values from the remaining columns
+    for (int i = 0; i < MAX_PIXELS; i++) {
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            image.pixels[i] = atoi(token);
+        }
+        else {
+            printf("Failed to read pixel value at index %d.\n", i);
+            return;
+        }
+    }
+
+    // Process the image here
+    // Example: Print the label and pixel values
+    /*
+    printf("Label: %d\n", image.label);
+    for (int i = 0; i < MAX_PIXELS; i++) {
+        printf("%d ", image.pixels[i]);
+    }
+    printf("\n");
+    */
+    float input_image_array_float[784] = { 0.0 };
+    int input_image_array[784] = {0};
+    for (int i = 0; i < MAX_PIXELS; i++) {
+        input_image_array_float[i] = image.pixels[i]/255.0;
+    }
+    float_array_to_fixed(&input_image_array_float, &input_image_array,784);
+    float output_prediction_array[10] = { 0 };
+    k2c_tensor output_prediction = { &output_prediction_array[0],1,10,{10, 1, 1, 1, 1} };
+    k2c_tensor_int input_image = { &input_image_array[0],3,784,{28,28,1,1.0,1.0} };
+    simplenet(&input_image, &output_prediction);
+    int prediction = argmax(output_prediction.array,output_prediction.numel);
+    for (int i = 0; i < 9; i++) {
+        printf("%f,", output_prediction.array[i]);
+    }
+    printf("%f\n", output_prediction.array[9]);
+    if (prediction == image.label)
+    {
+        count++;
+        printf("nb of correct is %d\n", count);
+    }
+}
+
+void processCSV(const char* filename) {
+    FILE* file = fopen(filename, "r");  // Open the CSV file in read mode
+    if (file == NULL) {
+        printf("Failed to open the file.\n");
+        return;
+    }
+
+    char line[MAX_LINE_LENGTH];
+
+    // Skip the first line (column names)
+    if (fgets(line, sizeof(line), file) == NULL) {
+        printf("Failed to read the first line.\n");
+        fclose(file);
+        return;
+    }
+
+    while (fgets(line, sizeof(line), file)) {
+        processLine(line);
+    }
+
+    fclose(file);  // Close the file
+}
 float maxabs(k2c_tensor* tensor1, k2c_tensor* tensor2);
 float test1_input_1_1_input_array[784] = {
 -3.31911981e-01f,+8.81297974e-01f,-1.99954250e+00f,-7.90669709e-01f,-1.41297644e+00f,
@@ -164,8 +256,8 @@ float test1_input_1_1_input_array[784] = {
 -3.72312023e-01f,+1.90088937e+00f,-7.18722697e-01f,+1.92996378e+00f, };
 k2c_tensor test1_input_1_1_input = { &test1_input_1_1_input_array[0],3,784,{28,28, 1, 1, 1} };
 float keras_dense_2_test1_array[10] = {
-+1.61644709e-06f,+1.07285478e-08f,+3.77330408e-02f,+5.01512068e-06f,+2.82698147e-06f,
-+3.05640299e-07f,+1.11865646e-08f,+2.98523673e-07f,+9.62253332e-01f,+3.52879329e-06f,
++9.40279476e-03f,+6.92492053e-02f,+7.56718731e-03f,+3.41808945e-02f,+2.35366285e-01f,
++2.28231419e-02f,+1.22948107e-03f,+5.68324149e-01f,+4.97943051e-02f,+2.06259568e-03f,
 };
 k2c_tensor keras_dense_2_test1 = { &keras_dense_2_test1_array[0],1,10,{10, 1, 1, 1, 1} };
 float c_dense_2_test1_array[10] = { 0 };
@@ -189,7 +281,13 @@ int main() {
     }
     printf("Max absolute error for 1 tests: %e \n", maxerror);
     simplenet_terminate();
+    
+    const char* filename = "mnist_train.csv";
+    processCSV(filename);
+
     system("pause"); // Wait for user input before closing the console
+
+
     if (maxerror > 1e-05) {
         return 1;
     }
