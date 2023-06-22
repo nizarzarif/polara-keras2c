@@ -156,24 +156,25 @@ void measure_conv2d_outputs(k2c_tensor_int* fp_tensor, k2c_tensor * float_tensor
     double diff_sum = 0.0;
     double percent_error_sum = 0.0;
     int output_size = fp_tensor->numel;
+    float sum = 0;
     //containsNaN(fp_tensor->array, fp_tensor->numel,"fp_tensor->array");
-    //containsNaN(float_tensor->array, float_tensor->numel,"float_tensor->array");
+    containsNaN(float_tensor->array, float_tensor->numel,"float_tensor->array");
     for (int i = 0; i < output_size; i++) {
         int fp_value = fp_tensor->array[i];
         float float_value = float_tensor->array[i] * pow(2.0, shift_factor);  // Convert float value to fixed-point
 
         double diff = fabs(fp_value - float_value);
-        double percent_error = (diff / fabs(fp_value)) * 100.0;
+        sum += float_value;
 
         diff_sum += diff;
-        percent_error_sum += percent_error;
+        
     }
 
     double avg_diff = diff_sum / output_size;
     double avg_percent_error = percent_error_sum / output_size;
 
     printf("Average difference: %f\n", avg_diff);
-    printf("Average percentage of error: %f%%\n", avg_percent_error);
+    printf("Average percentage of error: %f%%\n", 100.0*diff_sum/sum);
 }
 
  /**

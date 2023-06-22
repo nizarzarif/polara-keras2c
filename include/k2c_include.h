@@ -40,7 +40,10 @@ void k2c_ELU(float * x, const size_t size, const float alpha);
 void k2c_ThresholdedReLU(float * x, const size_t size, const float theta);
 void k2c_ReLU(float * x, const size_t size, const float max_value, const float negative_slope,
               const float threshold);
-
+// fixed point activation
+typedef void k2c_activationType_int(int* x, const size_t size, size_t shift_factor);
+extern k2c_activationType_int* k2c_relu_fixed_point;
+extern k2c_activationType_int* k2c_softmax_fixed_point;
 // Convolutions
 void k2c_pad1d(k2c_tensor* output, const k2c_tensor* input, const float fill,
                const size_t * pad);
@@ -56,7 +59,7 @@ void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
                 k2c_activationType *activation);
 void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
     const k2c_tensor_int* bias, const size_t* stride, const size_t* dilation,
-    k2c_activationType* activation, size_t shift_factor, size_t scale_factor);
+    k2c_activationType_int* activation, size_t shift_factor, size_t scale_factor);
 void k2c_conv3d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                 const k2c_tensor* bias, const size_t * stride, const size_t * dilation,
                 k2c_activationType *activation);
@@ -71,7 +74,7 @@ void k2c_upsampling3d(k2c_tensor* output, const k2c_tensor* input, const size_t 
 void k2c_dense(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                const k2c_tensor* bias, k2c_activationType *activation, float * fwork);
 void k2c_dense_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
-    const k2c_tensor_int* bias, k2c_activationType* activation, float* fwork, size_t shift_factor, size_t scale_factor);
+    const k2c_tensor_int* bias, k2c_activationType_int* activation, float* fwork, size_t shift_factor, size_t scale_factor);
 void k2c_flatten(k2c_tensor *output, const k2c_tensor* input);
 void k2c_reshape(k2c_tensor *output, const k2c_tensor* input, const size_t * newshp,
                  const size_t newndim);

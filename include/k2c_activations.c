@@ -132,7 +132,63 @@ void k2c_sigmoid_func(float * x, const size_t size) {
 }
 k2c_activationType * k2c_sigmoid = k2c_sigmoid_func;
 
+typedef int fixed_point_t;  // Define your fixed-point data type
 
+fixed_point_t int_exp(fixed_point_t x, int fractional_bits) {
+    fixed_point_t result = 1 << fractional_bits;
+    fixed_point_t term = 1 << fractional_bits;
+    int n;
+
+    for (n = 1; n < 10; ++n) {  // Adjust the number of terms for desired accuracy
+        term = (term * x) >> fractional_bits;
+        term /= n;
+        result += term;
+    }
+
+    return result;
+}
+
+int64_t int_to_fixed(int value, int fractional_bits) {
+    return (int64_t)value << fractional_bits;  // Scale the integer value by the number of fractional bits
+}
+
+int64_t fixed_to_int(fixed_point_t value, int fractional_bits) {
+    return value >> fractional_bits;  // Remove the fractional bits by shifting right
+}
+
+int64_t fixed_mul(fixed_point_t a, fixed_point_t b, int fractional_bits) {
+    return (a * b) >> fractional_bits;  // Perform fixed-point multiplication and adjust for the fractional bits
+}
+fixed_point_t fixed_div(fixed_point_t dividend, fixed_point_t divisor, int shift_factor) {
+    // Perform fixed-point division by adjusting for the shift factor
+    fixed_point_t shifted_dividend = dividend << shift_factor;
+    return shifted_dividend / divisor;
+}
+void k2c_softmax_func_fixed_point(int * x, const size_t size, size_t shift_factor) {
+    int32_t xmax = x[0];
+    int32_t sum = 0;
+
+    for (size_t i = 0; i < size; ++i) {
+        if (x[i] > xmax) {
+            xmax = x[i];
+        }
+    }
+
+    for (size_t i = 0; i < size; ++i) {
+        x[i] = exp((x[i] - xmax) >> shift_factor);
+    }
+
+    for (size_t i = 0; i < size; ++i) {
+        sum += x[i];
+    }
+
+    sum = (1 << shift_factor) / sum;
+
+    for (size_t i = 0; i < size; ++i) {
+        x[i] = (x[i] * sum) >> shift_factor;
+    }
+    
+}k2c_activationType_int* k2c_softmax_fixed_point = k2c_softmax_func_fixed_point;
 /**
  * Soft max activation function.
  *   z[i] = exp(x[i]-max(x))

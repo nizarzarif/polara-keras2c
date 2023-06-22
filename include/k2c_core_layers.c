@@ -27,7 +27,7 @@ https://github.com/f0uriest/keras2c
   * @param scale_factor   The scaling factor used to convert fixed-point result to floating point
   */
 void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const k2c_tensor_int* kernel,
-    const k2c_tensor_int* bias, k2c_activationType* activation, float* fwork,
+    const k2c_tensor_int* bias, k2c_activationType_int* activation, float* fwork,
     size_t shift_factor, size_t scale_factor) {
     printf("dense_input_input nb %d \n", input->ndim);
 
@@ -50,7 +50,7 @@ void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const 
             outrows, outcols, innerdim, shift_factor, scale_factor);
 
         // Apply the activation function to the output tensor
-        activation(output->array, outsize);
+        activation(output->array, outsize, shift_factor);
     }
     else {
         const size_t axesA[1] = { input->ndim - 1 };
@@ -65,7 +65,7 @@ void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const 
         k2c_bias_add(output, bias);
 
         // Apply the activation function to the output tensor
-        activation(output->array, output->numel);
+        activation(output->array, output->numel, shift_factor);
     }
 }
 

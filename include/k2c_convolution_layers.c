@@ -250,7 +250,7 @@ void k2c_conv1d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
  */
 void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
     const k2c_tensor_int* bias, const size_t* stride, const size_t* dilation,
-    k2c_activationType* activation, size_t shift_factor, size_t scale_factor) {
+    k2c_activationType_int* activation, size_t shift_factor, size_t scale_factor) {
 
     memset(output->array, 0, output->numel * sizeof(output->array[0]));
 
@@ -275,7 +275,8 @@ void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input,
                                 + dilation[0] * z0) * (in_channels * input->shape[1])
                                 + (x1 * stride[1] + dilation[1] * z1) * (in_channels)+q;
                             //printf("temp3 = %d, MUlresult = %d\n",temp3, multiplyFixedPoint(kernel->array[temp2], input->array[temp3], scale_factor, scale_factor));
-                            output->array[temp1] += multiplyFixedPoint(kernel->array[temp2], input->array[temp3], shift_factor, shift_factor);
+                            int increment = multiplyFixedPoint(kernel->array[temp2], input->array[temp3], shift_factor, shift_factor);
+                            output->array[temp1] = addFixedPoint(output->array[temp1], increment, shift_factor, shift_factor);
                             /*kernel->array[z0 * (kernel->shape[3] * kernel->shape[2] * kernel->shape[1])
                                           + z1*(kernel->shape[3]*kernel->shape[2])
                                           + q*(kernel->shape[3]) + k]*
@@ -289,8 +290,9 @@ void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input,
             }
         }
     }
+    
     k2c_bias_add_fixed_point(output, bias);
-    activation(output->array, output->numel);
+    activation(output->array, output->numel, shift_factor);
 }
 
 /**
