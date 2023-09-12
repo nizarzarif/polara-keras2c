@@ -11,6 +11,343 @@ https://github.com/f0uriest/keras2c
 #include <stdlib.h>
 #include <string.h>
 #include "k2c_include.h"
+#include "riscv_vector.h"
+#ifndef SPIKE
+#include "printf.h"
+#else
+#include "util.h"
+#endif
+
+void print_tensor_values(const k2c_tensor* output) {
+    for (int i = 0; i < output->numel; i++) {
+        printf("%f,", output->array[i]);
+    }
+    printf("\n\n\n\n\n");
+}
+void print_input(const k2c_tensor* input_tensor) {
+    if (input_tensor->ndim != 4) {
+        printf("Error: Expected a 4D input tensor (batch, height, width, channel).\n");
+        return;
+    }
+    printf("Input Tensor:\n");
+    print_tensor(input_tensor);
+    printf("\n");
+}
+
+void print_kernels(const k2c_tensor* kernel_tensor) {
+    if (kernel_tensor->ndim != 5) {
+        printf("Error: Expected a 5D kernel tensor (1, height, width, input_channel, output_channel).\n");
+        return;
+    }
+    printf("Kernel Tensors:\n");
+    print_tensor(kernel_tensor);
+    printf("\n");
+}
+
+void print_tensor(const k2c_tensor* tensor) {
+    if (tensor->ndim < 3) {
+        printf("Error: Tensor should have at least 3 dimensions for HWC format.\n");
+        return;
+    }
+
+    // Default values for extra dimensions
+    size_t batch = 1;
+    size_t depth = 1;
+    size_t height = tensor->shape[0];
+    size_t width = tensor->shape[1];
+    size_t channels = tensor->shape[2];
+
+    // Update if tensor has 4 dimensions (DHWC format)
+    if (tensor->ndim >= 4) {
+        depth = height;
+        height = width;
+        width = channels;
+        channels = tensor->shape[3];
+    }
+
+    // Update if tensor has 5 dimensions (BDHWC format)
+    if (tensor->ndim == 5) {
+        batch = depth;
+        depth = height;
+        height = width;
+        width = channels;
+        channels = tensor->shape[4];
+    }
+
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t d = 0; d < depth; d++) {
+            for (size_t h = 0; h < height; h++) {
+                for (size_t w = 0; w < width; w++) {
+                    printf("[ "); // Start of pixel value
+                    for (size_t c = 0; c < channels; c++) {
+                        size_t index = b * depth * height * width * channels 
+                                     + d * height * width * channels 
+                                     + h * width * channels 
+                                     + w * channels 
+                                     + c;
+                        printf("%f", tensor->array[index]);
+                        if (c != channels - 1) {
+                            printf(", ");
+                        }
+                    }
+                    printf(" ] "); // End of pixel value
+                }
+                printf("\n"); // New line after each row
+            }
+            if(tensor->ndim >= 4) printf("\n"); // New line after each depth slice
+        }
+        if(tensor->ndim == 5) printf("\n"); // New line after each batch
+    }
+}
+
+// 32-bit dot-product: a * b
+float f32dotp(const float *a, const float *b, size_t avl) {
+#ifdef INTRINSICS
+
+  size_t orig_avl = avl;
+  size_t vl = vsetvl_e32m8(avl);
+
+  vfloat32m8_t acc, buf_a, buf_b;
+  vfloat32m1_t red;
+
+  float *a_ = (float *)a;
+  float *b_ = (float *)b;
+
+  // Clean the accumulator
+  red = vfmv_s_f_f32m1(red, 0, vl);
+  // Stripmine and accumulate a partial reduced vector
+  for (; avl > 0; avl -= vl) {
+    vl = vsetvl_e32m8(avl);
+    // Load chunk a and b
+    buf_a = vle32_v_f32m8(a_, vl);
+    buf_b = vle32_v_f32m8(b_, vl);
+    // Multiply and accumulate
+    if (avl == orig_avl) {
+      acc = vfmul_vv_f32m8(buf_a, buf_b, vl);
+    } else {
+      acc = vfmacc_vv_f32m8(acc, buf_a, buf_b, vl);
+    }
+    // Bump pointers
+    a_ += vl;
+    b_ += vl;
+  }
+
+  // Reduce and return
+  red = vfredusum_vs_f32m8_f32m1(red, acc, red, vl);
+  return vfmv_f_s_f32m1_f32(red);
+
+#else
+
+  size_t orig_avl = avl;
+  size_t vl;
+  asm volatile("vsetvli %0, %1, e32, m8, ta, ma" : "=r"(vl) : "r"(avl));
+
+  float red;
+
+  float *a_ = (float *)a;
+  float *b_ = (float *)b;
+  // Clean the accumulator
+  asm volatile("vmv.s.x v0, zero");
+
+  // Stripmine and accumulate a partial reduced vector
+  for (; avl > 0; avl -= vl) {
+    asm volatile("vsetvli %0, %1, e32, m8, ta, ma" : "=r"(vl) : "r"(avl));
+    // Load chunk a and b
+    asm volatile("vle32.v v8,  (%0)" ::"r"(a_));
+    asm volatile("vle32.v v16, (%0)" ::"r"(b_));
+    // Multiply and accumulate
+    if (avl == orig_avl) {
+      asm volatile("vfmul.vv v24, v8, v16");
+    } else {
+      asm volatile("vfmacc.vv v24, v8, v16");
+    }
+    // Bump pointers
+    a_ += vl;
+    b_ += vl;
+  }
+
+  // Reduce and return
+  asm volatile("vfredusum.vs v0, v24, v0");
+  asm volatile("vfmv.f.s %0, v0" : "=f"(red));
+  printf("return from f32dotp\n");
+  return red;
+
+#endif
+}
+
+
+// Function to convert NHWC to NCHW
+void nhwc_to_nchw(float* data, int num_batches, int height, int width, int channels) {
+    float temp;
+    for (int b = 0; b < num_batches; b++) {
+        for (int h = 0; h < height; h++) {
+            for (int w = 0; w < width; w++) {
+                for (int c = 0; c < channels; c++) {
+                    int nhwc_index = b * height * width * channels + h * width * channels + w * channels + c;
+                    int nchw_index = b * channels * height * width + c * height * width + h * width + w;
+                    temp = data[nhwc_index];
+                    data[nhwc_index] = data[nchw_index];
+                    data[nchw_index] = temp;
+                }
+            }
+        }
+    }
+}
+
+// Function to convert NCHW to NHWC
+void nchw_to_nhwc(float* data, int num_batches, int channels, int height, int width) {
+    float temp;
+    for (int b = 0; b < num_batches; b++) {
+        for (int c = 0; c < channels; c++) {
+            for (int h = 0; h < height; h++) {
+                for (int w = 0; w < width; w++) {
+                    int nchw_index = b * channels * height * width + c * height * width + h * width + w;
+                    int nhwc_index = b * height * width * channels + h * width * channels + w * channels + c;
+                    temp = data[nchw_index];
+                    data[nchw_index] = data[nhwc_index];
+                    data[nhwc_index] = temp;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Rearranges the data in a k2c_tensor structure from the NCHW format (number of samples,
+ * channels, height, width) back to a flat structure in-place.
+ *
+ * @param tensor Pointer to the k2c_tensor structure to be rearranged.
+ */
+void rearrange_to_flat(k2c_tensor* tensor) {
+    // Get the dimensions and strides of the tensor
+    const size_t num_samples = tensor->shape[0];
+    const size_t num_channels = tensor->shape[1];
+    const size_t height = tensor->shape[2];
+    const size_t width = tensor->shape[3];
+    const size_t channel_stride = height * width;
+    const size_t height_stride = width;
+
+    // Perform the in-place rearrangement
+    float* data = tensor->array;
+    if (num_channels == 1 && height == 1 && width == 1) {
+        // No rearrangement needed if already in flat structure
+        return;
+    }
+
+    // Rearrange the data in-place
+    for (size_t n = 0; n < num_samples; ++n) {
+        for (size_t c = 0; c < num_channels; ++c) {
+            for (size_t h = 0; h < height; ++h) {
+                for (size_t w = 0; w < width; ++w) {
+                    // Calculate the indices for NCHW and flat structure
+                    const size_t idx = n * (num_channels * height * width) +
+                                       c * channel_stride +
+                                       h * height_stride +
+                                       w;
+                    const size_t flat_idx = c + h * num_channels + w * (num_channels * height) + n * (num_channels * height * width);
+                    // Move the data to its flat position
+                    data[flat_idx] = tensor->array[idx];
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Rearranges the data in a k2c_tensor structure to follow the NCHW format (number of samples,
+ * channels, height, width) in-place.
+ *
+ * @param tensor Pointer to the k2c_tensor structure to be rearranged.
+ */
+
+#define MAX_SIZE 20 // Adjust this to the maximum possible size for your application
+
+// This function rearranges the tensor in-place to fit into a different shape.
+// It assumes that the tensor's shape can be reshaped into dimensions (W, R+C-1, C+C-1).
+// The function works by copying the existing tensor's elements into a temporary stack-allocated array, 
+// then copying the temporary array back to the original tensor.
+// Parameters:
+// - tensor: A pointer to the tensor to be rearranged.
+// - R, C, W: The dimensions of the tensor before rearranging.
+void rearrange_k2c_tensor(k2c_tensor* tensor, size_t R, size_t C, size_t W) {
+    float tensor_array[MAX_SIZE][MAX_SIZE][MAX_SIZE];
+
+    for(size_t w = 0; w < W; w++)
+        for(size_t r = 0; r < R; r++)
+            for(size_t c = 0; c < C; c++)
+                tensor_array[w][r][c] = tensor->array[w*R*C + r*C + c];
+
+    memcpy(tensor->array, tensor_array, sizeof(float) * W * (R+C-1) * (C+C-1));
+
+    tensor->shape[0] = W;
+    tensor->shape[1] = R+C-1;
+    tensor->shape[2] = C+C-1;
+}
+
+// This function rearranges the tensor in-place back to its original shape.
+// It works by copying the existing tensor's elements into a temporary stack-allocated array,
+// then copying the temporary array back to the original tensor.
+// Parameters:
+// - tensor: A pointer to the tensor to be rearranged.
+// - R, C, W: The dimensions of the tensor after rearranging.
+void rearrange_back_k2c_tensor(k2c_tensor* tensor, size_t R, size_t C, size_t W) {
+    float tensor_array[MAX_SIZE][MAX_SIZE][MAX_SIZE];
+
+    for(size_t w = 0; w < W; w++)
+        for(size_t r = 0; r < R; r++)
+            for(size_t c = 0; c < C; c++)
+                tensor_array[w][r][c] = tensor->array[w*(R+C-1)*(C+C-1) + r*(C+C-1) + c];
+
+    memcpy(tensor->array, tensor_array, sizeof(float) * W * R * C);
+
+    tensor->shape[0] = W;
+    tensor->shape[1] = R;
+    tensor->shape[2] = C;
+}
+
+
+void rearrange_to_NCHW(k2c_tensor* tensor) {
+    // Get the dimensions and strides of the tensor
+    const size_t num_samples = tensor->shape[0];
+    const size_t num_channels = tensor->shape[1];
+    const size_t height = tensor->shape[2];
+    const size_t width = tensor->shape[3];
+    const size_t channel_stride = height * width;
+    const size_t height_stride = width;
+
+    // Perform the in-place rearrangement
+    float* data = tensor->array;
+    if (num_channels == 1 && height == 1 && width == 1) {
+        // No rearrangement needed if already in flat structure
+        return;
+    }
+
+    // Rearrange the data in-place
+    for (size_t n = 0; n < num_samples; ++n) {
+        for (size_t c = 0; c < num_channels; ++c) {
+            for (size_t h = 0; h < height; ++h) {
+                for (size_t w = 0; w < width; ++w) {
+                    // Calculate the new indices
+                    const size_t idx = n * (num_channels * height * width) +
+                                       c * channel_stride +
+                                       h * height_stride +
+                                       w;
+                    // Calculate the original indices using modular arithmetic
+                    const size_t orig_c = c % num_channels;
+                    const size_t orig_h = h % height;
+                    const size_t orig_w = w % width;
+                    const size_t orig_idx = n * (num_channels * height * width) +
+                                            orig_c * channel_stride +
+                                            orig_h * height_stride +
+                                            orig_w;
+                    // Move the data to its new position
+                    data[idx] = tensor->array[orig_idx];
+                }
+            }
+        }
+    }
+}
+
 
  /**
   * Finds the index of the maximum element in a float array.
@@ -360,7 +697,7 @@ void k2c_affine_matmul_fixed_point(int* C, const int* A, const int* B, const int
             //C[outrowidx + j] += d[j];
         }
     }
-    printf("%d and %d\n", (C[0]) >> shift_factor, (C[1]) >> shift_factor);
+
 }
 
 
@@ -658,7 +995,9 @@ void k2c_flip(k2c_tensor *A, const size_t axis) {
 }
 
 
-
+float* k2c_read_array(const char* filename, const size_t array_size){
+	return NULL;
+}
 /**
  * Reads array from csv file.
  *
@@ -666,6 +1005,7 @@ void k2c_flip(k2c_tensor *A, const size_t axis) {
  * :param array_size: how many values to read from the file.
  * :return: pointer to allocated array.
  */
+/*
 float* k2c_read_array(const char* filename, const size_t array_size) {
     float* ptr = (float*) malloc(array_size * sizeof(float));
     if (!ptr) {
@@ -686,3 +1026,5 @@ float* k2c_read_array(const char* filename, const size_t array_size) {
     fclose(finp);
     return ptr;
 }
+*/
+

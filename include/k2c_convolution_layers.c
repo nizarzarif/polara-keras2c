@@ -11,7 +11,130 @@ https://github.com/f0uriest/keras2c
 #include <stdio.h>
 #include <string.h>
 #include "k2c_include.h"
+#include "fconv2d_tensor32.h"
+#include "printf.h"
+#define MAX_PAD 2
 
+
+
+
+
+//fetch the filter value 
+
+
+void NCHW_to_NHWC_tensor32_vec_16xC(int32_t *o, int32_t *i, int64_t R, int64_t C, int64_t W) {
+
+	uint64_t ldo = (W*C) << 2;			// Jump depth x column nb at each store
+	uint64_t stride = W << 2;			// scalar values of each vectorn is stored C adress appart
+	uint64_t ldi = C << 2;				// 
+	int64_t block_size_o = 16; //16 input and 16 output at each iteration
+
+
+  
+for (int64_t r = 0; r < R; r += block_size_o) {
+
+	asm volatile("vsetvli zero, %0, e32, m2, ta, ma" ::"r"(C));
+	
+	// Fetch 32 input vectors
+	
+	asm volatile("vle32.v v0,  (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v2,  (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v4,  (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v6,  (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v8,  (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v10, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v12, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v14, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v16, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v18, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v20, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v22, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v24, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v26, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v28, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	asm volatile("vle32.v v30, (%0); add %0, %0, %1" : "+&r"(i) : "r"(ldi));
+	
+	// Store each vector with the right stride 
+
+	asm volatile("vsse32.v v0,  (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v2,  (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v4,  (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v6,  (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v8,  (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v10, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v12, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v14, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v16, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v18, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v20, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v22, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v24, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v26, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v28, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	asm volatile("vsse32.v v30, (%0), %1 ; add %0, %0, %2" : "+&r"(o), "+&r"(stride) : "r"(ldo));
+	}
+	
+
+}
+
+void NCHW_to_k2c_tensor32(k2c_tensor* dest_tensor, float* src_array, size_t N, size_t C, size_t H, size_t W) {
+    // Note: Here, we assume that the destination tensor has already been allocated with the correct dimensions and sizes
+    // shape[0] = H, shape[1] = W, shape[2] = C, shape[3] = N, shape[4] = 1
+
+    for (size_t n = 0; n < N; n++) {       // Iterate over batch
+        for (size_t h = 0; h < H; h++) {   // Iterate over height
+            float *input = src_array + n * C * H * W + h * W * C; // NCHW format
+            float *output = dest_tensor->array + n * H * W * C + h * W * C; // NHWC format
+            
+            NCHW_to_NHWC_tensor32_vec_16xC(output, input, H, W, C);
+        }
+    }
+}
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                            Description : Apply ReLu function to a tensor                                    //		
+//                                                                                                             //				
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// *o : tensor output pointer C_in x H_in x W_in
+// *i : input tensor pointer  C_in x H_in x W_in
+// H_in  : number of input rows
+// W_in  : number of input column
+// C_in  : number of input channels
+
+
+// Calculate 2 output matrix rows
+void fReLu_tensor32(float *o, float *i, size_t H_in, size_t W_in, size_t C_in) {
+
+int64_t const size = H_in * W_in * C_in;
+
+float comp = 0;
+
+asm volatile("vsetvli zero, %0, e32, m8, ta, ma" ::"r"(TILE_SIZE));
+
+	for (int c = 0 ; c < size ; c += TILE_SIZE) // IF CONVOLUTION NEED TO BE TILED (C > TILE_SIZE)
+	{
+	
+	  float *i_ = i + c;  // input pointer realtive to the tile (constant throughout the tile)
+	  float *o_ = o + c;  // output pointer relative to the tile	
+		
+		
+	  if(c > size - TILE_SIZE) 	// if we are at the right border of the input
+				asm volatile("vsetvli zero, %0, e32, m8, ta, ma" ::"r"(size % TILE_SIZE));
+	  
+	  asm volatile("vle32.v v16,  (%0)" : "+&r"(i_));
+	  
+	  asm volatile("vfmax.vf v0,  v16,  %0" :: "f"(comp));
+	  
+	  asm volatile("vse32.v  v0,  (%0)" : "+&r"(o_));
+	
+	}
+
+}
 
 /**
  * 1D (temporal) Padding.
@@ -295,6 +418,156 @@ void k2c_conv2d_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input,
     activation(output->array, output->numel, shift_factor);
 }
 
+
+void transpose_kernel(k2c_tensor* kernel) {
+    size_t H = kernel->shape[0];
+    size_t W = kernel->shape[1];
+    size_t Cin = kernel->shape[2];
+    size_t Cout = kernel->shape[3];
+    
+    float buffer[K2C_MAX_NDIM * K2C_MAX_NDIM * K2C_MAX_NDIM * K2C_MAX_NDIM]; // assuming this doesn't exceed your system's static memory limit
+    
+    // Copy kernel to buffer
+    for (size_t h = 0; h < H; ++h) {
+        for (size_t w = 0; w < W; ++w) {
+            for (size_t cin = 0; cin < Cin; ++cin) {
+                for (size_t cout = 0; cout < Cout; ++cout) {
+                    buffer[cout * Cin * H * W + cin * H * W + h * W + w] = kernel->array[h * W * Cin * Cout + w * Cin * Cout + cin * Cout + cout];
+                }
+            }
+        }
+    }
+    
+    // Copy buffer back to kernel
+    for (size_t i = 0; i < H*W*Cin*Cout; ++i) {
+        kernel->array[i] = buffer[i];
+    }
+}
+
+float static_buffer_for_input[K2C_MAX_NDIM * K2C_MAX_NDIM * K2C_MAX_NDIM]; // adjust as per the maximum tensor size you're working with
+
+void in_place_nhwc_to_nchw_static(k2c_tensor* tensor) {
+    size_t h = tensor->shape[0];
+    size_t w = tensor->shape[1];
+    size_t c = tensor->shape[2];
+    
+    for (size_t channel = 0; channel < c; channel++) {
+        for (size_t height = 0; height < h; height++) {
+            for (size_t width = 0; width < w; width++) {
+                static_buffer_for_input[channel * h * w + height * w + width] = tensor->array[height * w * c + width * c + channel];
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < h * w * c; ++i) {
+        tensor->array[i] = static_buffer_for_input[i];
+    }
+}
+
+void in_place_nchw_to_nhwc_static(k2c_tensor* tensor) {
+    size_t h = tensor->shape[1];  // Assuming NCHW format
+    size_t w = tensor->shape[2];
+    size_t c = tensor->shape[0];
+    
+    for (size_t channel = 0; channel < c; channel++) {
+        for (size_t height = 0; height < h; height++) {
+            for (size_t width = 0; width < w; width++) {
+                static_buffer_for_input[height * w * c + width * c + channel] = tensor->array[channel * h * w + height * w + width];
+            }
+        }
+    }
+    
+    for (size_t i = 0; i < h * w * c; ++i) {
+        tensor->array[i] = static_buffer_for_input[i];
+    }
+}
+
+void transposeOutput(k2c_tensor* tensor) {
+    int out_channels = tensor->shape[3]; // Cout
+    int in_channels = tensor->shape[2];  // Cin
+    int out_rows = tensor->shape[0];     // Height
+    int out_cols = tensor->shape[1];     // Width
+
+    // Stack-allocated temporary buffer
+    float tempBuffer[out_channels * in_channels * out_rows * out_cols];
+
+    // Perform transposition into tempBuffer
+    for (int k_out = 0; k_out < out_channels; k_out++) {
+        for (int k_in = 0; k_in < in_channels; k_in++) {
+            for (int r = 0; r < out_rows; r++) {
+                for (int c = 0; c < out_cols; c++) {
+                    int curr_index = k_out*(in_channels*out_rows*out_cols) 
+                                    + k_in*(out_rows*out_cols) 
+                                    + r*out_cols + c;
+
+                    int target_index = r*(out_cols*in_channels*out_channels) 
+                                      + c*(in_channels*out_channels) 
+                                      + k_in*out_channels + k_out;
+
+                    tempBuffer[target_index] = tensor->array[curr_index];
+                }
+            }
+        }
+    }
+
+    // Copy the transposed data from tempBuffer back into tensor->array
+    for (int i = 0; i < out_channels * in_channels * out_rows * out_cols; i++) {
+        tensor->array[i] = tempBuffer[i];
+    }
+}
+
+void transposeOutput_vector(k2c_tensor* tensor) {
+    int N = tensor->shape[3];            // Batch
+    int C = tensor->shape[2];            // Channels
+    int H = tensor->shape[0];            // Height
+    int W = tensor->shape[1];            // Width
+
+    // Assuming float is the underlying data type for the tensor, which matches with the provided NCHW_to_NHWC_tensor32_vec_16xC function
+    float* src_data = tensor->array;
+
+    // Loop through batches and height, then convert from NCHW to NHWC in-place
+    for (int n = 0; n < N; n++) {
+        for (int h = 0; h < H; h++) {
+            float* input_data = src_data + n * C * H * W + h * W * C;  // Pointer to input data in NCHW format
+            float* output_data = input_data;                           // Since the operation is in-place, output is same as input
+            
+            NCHW_to_NHWC_tensor32_vec_16xC(output_data, input_data, H, W, C);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                           Description : Functions for cross-correlation between                             //		
+//                                                                                                             //
+//                      1 x Cin x Hin x Win  * Cout x Cin x F x F   =    Cout x Hout x Wout                    //			
+//                          input (32b)            kernels (32b)             output (32b)                      //	
+//																																					//
+//																																					//				
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// *o    : tensor convolution output pointer 
+// *i    : input tensor pointer
+// *f    : kernel/filter tensor pointer
+// R   : number of input cows
+// C   : number of input column
+// W   : number of input channels 
+// F     : size of the kernel/filter 
+// K  : number of kernel/filter corresponding to the number of output channels
+void fconv2d_tensor32_naive(float *o, float *i, float *f, int64_t R, int64_t C, int64_t W, int64_t F, int64_t K) {
+//treat pointers as 3D arrays
+float (*i_)[R+F-1][C+F-1] = (float (*)[R+F-1][C+F-1])i;
+float (*f_)[W][F][F] = (float (*)[W][F][F])f;
+float (*o_)[R][C] = (float (*)[R][C])o;
+ 
+for(int k = 0 ; k < K ; k++) 
+	for(int ch = 0 ; ch < W ; ch++)
+		for(int r = 0 ; r < R ; r++)
+			for(int c = 0 ; c < C ; c++)
+				for(int fh = 0 ; fh < F ; fh++)
+					for(int fw = 0 ; fw < F ; fw++) {
+						o_[k][r][c] += i_[ch][r+fh][c+fw]*f_[k][ch][fh][fw];
+					}
+}
 /**
  * 2D (spatial) Convolution.
  * Assumes a "channels last" structure.
@@ -312,17 +585,14 @@ void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
                 k2c_activationType *activation) {
 
     memset(output->array,0,output->numel*sizeof(output->array[0]));
-
+    #ifndef VLEN
     const size_t out_rows = output->shape[0];
     const size_t out_cols = output->shape[1];
     const size_t out_channels = output->shape[2];
     const size_t in_channels = input->shape[2];
-    /*
-    for (int i = 0; i < kernel->numel; i++)
-    {
-        printf("%f\n", kernel->array[i]);
-    }
-    */
+
+    printf("conv2d on scalar core\n");
+    
     for (size_t x0=0; x0 < out_rows; ++x0) {
         for (size_t x1=0; x1 < out_cols; ++x1) {
             for (size_t z0=0; z0 < kernel->shape[0]; ++z0) {
@@ -337,23 +607,48 @@ void k2c_conv2d(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* k
                                               input->array[(x0*stride[0]
                                                             + dilation[0]*z0)*(input->shape[2]*input->shape[1])
                                                            + (x1*stride[1] + dilation[1]*z1)*(input->shape[2]) + q];
-                           
-                            
-                           /*printf("%f += %f * %f \n", output->array[x0 * (output->shape[2] * output->shape[1])
-                                + x1 * (output->shape[2]) + k], kernel->array[z0 * (kernel->shape[3] * kernel->shape[2] * kernel->shape[1])
-                                + z1 * (kernel->shape[3] * kernel->shape[2])
-                                + q * (kernel->shape[3]) + k], input->array[(x0 * stride[0]
-                                    + dilation[0] * z0) * (input->shape[2] * input->shape[1])
-                                + (x1 * stride[1] + dilation[1] * z1) * (input->shape[2]) + q]);*/ 
                         }
                     }
                 }
             }
         }
     }
-
+    //print_tensor_values(output);
     k2c_bias_add(output,bias);
     activation(output->array,output->numel);
+    #else
+    printf("conv2d on vector core\n");
+
+
+// Assuming this function only handles 'valid' padding for simplicity
+    //size_t out_rows = (input->shape[0] -kernel->shape[0] + 1);
+    //size_t out_cols = (input->shape[1] - kernel->shape[0]+ 1);
+    
+    //print_tensor_values(input);
+    // Convert input from NHWC to NCHW in-place
+    in_place_nhwc_to_nchw_static(input);
+
+    // print_tensor_values(input);
+    //print_tensor_values(kernel);
+    // Transpose kernel
+    transpose_kernel(kernel);
+    //print_tensor_values(kernel);
+    // Call the convolution function
+    //fconv2d_tensor32_naive(output->array, input->array, kernel->array, out_rows, out_cols, input->shape[2], kernel->shape[0], kernel->shape[3]);
+    fconv2d_tensor32(output->array, input->array, kernel->array, input->shape[0], input->shape[1], input->shape[2], kernel->shape[0], kernel->shape[3]);
+
+    //print_tensor_values(output);
+    // Convert output from NCHW to NHWC in-place
+    transposeOutput(output);
+    //transposeOutput_vector(output);
+    //NCHW_to_k2c_tensor32(output, output->array,output->shape[2], output->shape[3], output->shape[0], output->shape[1]);
+    //NCHW_to_NHWC_tensor32(output);
+ 
+    //print_tensor_values(output);
+    k2c_bias_add(output,bias);
+    fReLu_tensor32(output->array, output->array, output->shape[0], output->shape[1], output->shape[2]);
+    #endif
+     
 }
 
 

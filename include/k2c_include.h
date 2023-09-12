@@ -73,7 +73,7 @@ void k2c_upsampling3d(k2c_tensor* output, const k2c_tensor* input, const size_t 
 // Core Layers
 void k2c_dense(k2c_tensor* output, const k2c_tensor* input, const k2c_tensor* kernel,
                const k2c_tensor* bias, k2c_activationType *activation, float * fwork);
-void k2c_dense_fixed_point(k2c_tensor_int* output, const k2c_tensor_int* input, const k2c_tensor_int* kernel,
+void k2c_dense_fixed_point(k2c_tensor_int* output, k2c_tensor_int* input, const k2c_tensor_int* kernel,
     const k2c_tensor_int* bias, k2c_activationType_int* activation, float* fwork, size_t shift_factor, size_t scale_factor);
 void k2c_flatten(k2c_tensor *output, const k2c_tensor* input);
 void k2c_reshape(k2c_tensor *output, const k2c_tensor* input, const size_t * newshp,
@@ -154,8 +154,9 @@ void k2c_gru(k2c_tensor* output, const k2c_tensor* input, float * state,
              k2c_activationType *recurrent_activation,
              k2c_activationType *output_activation);
 
-void float_array_to_fixed(float* x_float, int* x_fixed, int size);
-void fixed_array_to_float(int* x_fixed, float* x_float, int size);
+int32_t addFixedPoint(int32_t a, int32_t b, int m, int n);
+void float_array_to_fixed(float* x_float, int* x_fixed, size_t size);
+void fixed_array_to_float(int* x_fixed, float* x_float, size_t size);
 int32_t multiplyFixedPoint(int32_t a, int32_t b, int m, int n);
 void float_tensor_to_fixed(k2c_tensor* x_float, k2c_tensor_int* x_fixed, size_t size);
 void fixed_tensor_to_float(k2c_tensor_int* x_fixed, k2c_tensor* x_float, size_t size);
@@ -168,3 +169,16 @@ void printTensorRecursive(float* array, size_t* dim, size_t* stride, size_t tota
 void k2c_affine_matmul_fixed_point(int* C, const int* A, const int* B, const int* d,
     const size_t outrows, const size_t outcols, const size_t innerdim,
     size_t shift_factor, size_t scale_factor);
+int argmax(const float arr[], int size);
+void rearrange_to_NCHW(k2c_tensor* tensor);
+void rearrange_to_flat(k2c_tensor* tensor);
+void rearrange_k2c_tensor(k2c_tensor* tensor, size_t R, size_t C, size_t W);
+void rearrange_back_k2c_tensor(k2c_tensor* tensor, size_t R, size_t C, size_t W);
+void nhwc_to_nchw(float* data, int num_batches, int height, int width, int channels);
+void nchw_to_nhwc(float* data, int num_batches, int channels, int height, int width);
+float f32dotp(const float *a, const float *b, size_t avl);
+void visualize_tensor(const k2c_tensor* tensor);
+void print_tensor(const k2c_tensor* tensor);
+void print_input(const k2c_tensor* input_tensor);
+void print_kernels(const k2c_tensor* kernel_tensor);
+void print_tensor_values(const k2c_tensor* output);

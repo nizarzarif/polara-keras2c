@@ -55,7 +55,7 @@ void k2c_relu_func_fixed_point(int* x, const size_t size, size_t shift_factor) {
         }
     }
 }
-k2c_activationType* k2c_relu_fixed_point = k2c_relu_func_fixed_point;
+k2c_activationType_int * k2c_relu_fixed_point = k2c_relu_func_fixed_point;
 
 /**
  * ReLU activation function.

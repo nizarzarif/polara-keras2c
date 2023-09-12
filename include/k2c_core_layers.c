@@ -10,7 +10,12 @@ https://github.com/f0uriest/keras2c
 #include <stdio.h>
 #include <string.h>
 #include "k2c_include.h"
-
+#ifndef SPIKE
+#include "printf.h"
+#else
+#include "util.h"
+#include <stdio.h>
+#endif
 
 
 
